@@ -123,7 +123,7 @@ class Space(models.Model):
         RCLONE,
         SWIFT,
         S3,
-        LOGALTY_STORAGE_MODULE
+        LOGALTY_STORAGE_MODULE,
     }
     ACCESS_PROTOCOL_CHOICES = (
         (ARCHIPELAGO, _("Archipelago")),
@@ -143,8 +143,6 @@ class Space(models.Model):
         (SWIFT, _("Swift")),
         (S3, _("S3")),
         (LOGALTY_STORAGE_MODULE, _("Logalty Storage Module via REST API"))
-
-
     )
     access_protocol = models.CharField(
         max_length=8,
