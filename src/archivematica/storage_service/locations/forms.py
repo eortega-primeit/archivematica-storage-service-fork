@@ -121,6 +121,11 @@ class ArchipelagoForm(forms.ModelForm):
         model = models.Archipelago
         fields = ("archipelago_url", "archipelago_user", "archipelago_password")
 
+class LogaltyForm(forms.ModelForm):
+    class Meta:
+        model = models.LogaltyStorageAPIServiceSpace
+        fields = ("logalty_url", "logalty_user", "logalty_pass","archive_format")
+
 
 class ArkivumForm(forms.ModelForm):
     class Meta:

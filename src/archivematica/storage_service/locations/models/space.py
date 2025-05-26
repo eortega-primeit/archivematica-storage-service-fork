@@ -111,7 +111,7 @@ class Space(models.Model):
     SWIFT = "SWIFT"
     GPG = "GPG"
     S3 = "S3"
-    LOGALTY_STORAGE_MODULE = "LOGALTY_STORAGE_MODULE"
+    LOGALTY = "LOGALTY"
     # These will not be displayed in the Space Create GUI (see locations/forms.py)
     BETA_PROTOCOLS: set[str] = set()
     OBJECT_STORAGE = {
@@ -123,7 +123,7 @@ class Space(models.Model):
         RCLONE,
         SWIFT,
         S3,
-        LOGALTY_STORAGE_MODULE,
+        LOGALTY,
     }
     ACCESS_PROTOCOL_CHOICES = (
         (ARCHIPELAGO, _("Archipelago")),
@@ -142,7 +142,7 @@ class Space(models.Model):
         (RCLONE, _("RClone")),
         (SWIFT, _("Swift")),
         (S3, _("S3")),
-        (LOGALTY_STORAGE_MODULE, _("Logalty Storage Module via REST API"))
+        (LOGALTY, _("Logalty Storage Module via REST API")),
     )
     access_protocol = models.CharField(
         max_length=8,
