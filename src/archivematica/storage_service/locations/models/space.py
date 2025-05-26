@@ -29,7 +29,7 @@ def validate_space_path(path):
 
 
 # To add a new storage space the following places must be updated:
-#  locations/models/space.py (this file)
+#  locations/models/space.py (this file.)
 #   Add constant for storage protocol
 #   Add constant to ACCESS_PROTOCOL_CHOICES
 #  locations/models/<spacename>.py
