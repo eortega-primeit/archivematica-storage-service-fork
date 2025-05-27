@@ -1,5 +1,6 @@
 import os
 import json
+import mimetypes
 import requests
 import logging
 import traceback
@@ -28,6 +29,35 @@ class LogaltyRESTException(Exception):
         if exc_info:
             msg.append(f" {traceback.format_exc()}")
         super().__init__("".join(msg))
+
+
+def _post(url, filename=None, file=None, json_data=None, cookies=None):
+    files = {}
+    data = {}
+
+    if file and filename:
+        # Guess MIME type
+        mime_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+        files["file"] = (filename, file, mime_type)
+
+    if json_data:
+        # Flatten JSON dict into form fields (multipart-style)
+        for key, value in json_data.items():
+            data[key] = value
+
+    # Logging for debug
+    LOGGER.info(f"📡 POST to URL: {url}")
+    LOGGER.info(f"📁 Sending file: {files.get('file')[0] if 'file' in files else 'None'}")
+    LOGGER.info(f"📦 Payload data: {data}")
+
+    response = requests.post(url, files=files, data=data, cookies=cookies)
+
+    LOGGER.info(f"✅ Response status code: {response.status_code}")
+    if not response.ok:
+        LOGGER.error(f"❌ Error response: {response.text}")
+        response.raise_for_status()
+
+    return response
 
 
 class Logalty(models.Model):
@@ -94,7 +124,7 @@ class Logalty(models.Model):
         )
 
         if os.path.isdir(source_path):
-            LOGGER.info(("Is a directroy: %s"), source_path)
+            LOGGER.info("Is a directory: %s", source_path)
             # ensure trailing slash on both paths
             src_path = os.path.join(source_path, "")
             dest_path = os.path.join(destination_path, "")
@@ -109,59 +139,36 @@ class Logalty(models.Model):
                     self.upload_object(basename, dest, path,package, isFile=False)
 
         elif os.path.isfile(source_path):
-            LOGGER.info(("Is a file: %s"), source_path)
+            LOGGER.info("Is a file: %s", source_path)
             # strip leading slash on dest_path
             dest_path = destination_path.lstrip("/")
             self.upload_object(os.path.basename(source_path), destination_path, source_path,package, isFile=True)
 
     def upload_object(self, basename, dest, path, package, isFile=False):
         base_url = f"{self.logalty_url}/file"
+        endpoint = "/dip" if package.package_type == "DIP" else "/aip"
+        url = base_url + endpoint
+
         LOGGER.info("Upload OBJECT --> base_url: %s, dest: %s, package_type: %s", base_url, dest, package.package_type)
+
         try:
-            # Read file bytes
-            if isFile:
-                with open(path, "rb") as f:
-                    file_bytes = f.read()
-            else:
-                with open(os.path.join(path, basename), "rb") as f:
-                    file_bytes = f.read()
+            file_path = path if isFile else os.path.join(path, basename)
+            with open(file_path, "rb") as f:
+                filename = os.path.basename(file_path)
+                file_bytes = f.read()
 
-
-            # Prepare JSON payload
+            # Prepare JSON payload as part of multipart form
             payload = {
                 "destination": dest
             }
-            if package.package_type == "DIP":
-                self._post(
-                    base_url + "/dip",
-                    file=file_bytes,
-                    json_data=payload,
-                    cookies=None,
-                )
-            else:
-                self._post(
-                    base_url + "/aip",
-                    file=file_bytes,
-                    json_data=payload,
-                    cookies=None,
-                )
 
-        except Exception:
-            raise LogaltyRESTException(f"Error sending {basename} to {base_url}.")
+            _post(
+                url,
+                filename=filename,
+                file=file_bytes,
+                json_data=payload,
+                cookies=None,
+            )
 
-    def _post(self, url, file=None, json_data=None, cookies=None):
-        files = {}
-        data = {}
-
-        if file:
-            files["file"] = ("filename", file)  # (name, file-like object)
-
-        if json_data:
-            # Convert the JSON dict to a string before sending
-            data["destination"] = json_data["destination"]
-        # Log the URL and data being sent
-        LOGGER.info(f"📡 POST to URL: {url}")
-        LOGGER.info(f"📁 Sending file: {files.keys() if files else 'None'}")
-        LOGGER.info(f"📦 Payload data: {data}")
-
-        return requests.post(url, files=files, data=data, cookies=cookies)
+        except Exception as e:
+            raise LogaltyRESTException(f"Error sending {basename} to {base_url}: {e}")
