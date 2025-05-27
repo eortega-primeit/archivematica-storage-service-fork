@@ -94,6 +94,7 @@ class Logalty(models.Model):
         )
 
         if os.path.isdir(source_path):
+            LOGGER.info(("Is a directroy: %s"), source_path)
             # ensure trailing slash on both paths
             src_path = os.path.join(source_path, "")
             dest_path = os.path.join(destination_path, "")
@@ -105,12 +106,13 @@ class Logalty(models.Model):
                 for basename in files:
                     entry = os.path.join(path, basename)
                     dest = entry.replace(src_path, dest_path, 1)
-                    self.upload_object(basename, dest, path,package)
+                    self.upload_object(basename, dest, path,package, isFile=False)
 
         elif os.path.isfile(source_path):
+            LOGGER.info(("Is a file: %s"), source_path)
             # strip leading slash on dest_path
             dest_path = destination_path.lstrip("/")
-            self.upload_object(os.path.basename(source_path), destination_path, source_path,package)
+            self.upload_object(os.path.basename(source_path), destination_path, source_path,package, isFile=True)
 
         # if package is None:
         #     raise LogaltyRESTException("DSpace requires package param.")
@@ -145,13 +147,18 @@ class Logalty(models.Model):
         # finally:
         #     self._logout_from_storage_rest(ds_sessionid)
 
-    def upload_object(self, basename, dest, path,package):
+    def upload_object(self, basename, dest, path,package, isFile=True):
         base_url = f"{self.logalty_url}/file"
         LOGGER.info("Upload OBJECT --> base_url: %s, dest: %s, package_type: %s", base_url, dest,package.package_type)
         try:
             # Read file bytes
-            with open(os.path.join(path, basename), "rb") as f:
-                file_bytes = f.read()
+            if isFile:
+                with open(path, "rb") as f:
+                    file_bytes = f.read()
+            else:
+                with open(os.path.join(path, basename), "rb") as f:
+                    file_bytes = f.read()
+
 
             # Prepare JSON payload
             payload = {
