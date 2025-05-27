@@ -53,16 +53,7 @@ class Logalty(models.Model):
         verbose_name=_("Logalty Storage Module Endpoint URL"),
         help_text=_("Logalty Storage Module Endpoint URL."),
     )
-    as_url = models.URLField(
-        blank=True,
-        max_length=256,
-        verbose_name=_("ArchivesSpace URL"),
-        help_text=_(
-            "URL of ArchivesSpace server. E.g."
-            " http://sandbox.archivesspace.org:8089/ (default port"
-            " 8089 if omitted)"
-        ),
-    )
+
     ARCHIVE_FORMAT_ZIP = "ZIP"
     ARCHIVE_FORMAT_7Z = "7Z"
     ARCHIVE_FORMAT_CHOICES = ((ARCHIVE_FORMAT_ZIP, "ZIP"), (ARCHIVE_FORMAT_7Z, "7z"))
