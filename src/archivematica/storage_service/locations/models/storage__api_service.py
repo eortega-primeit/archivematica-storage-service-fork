@@ -6,6 +6,8 @@ import traceback
 
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from requests.auth import HTTPBasicAuth
+from django.conf import settings
 
 from archivematica.storage_service.locations.models.location import Location
 
@@ -16,7 +18,6 @@ HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
 DS_SCHEME = "https"
 DFLT_AS_PORT = 8089
 DFLT_DS_PORT = 443
-
 
 class LogaltyRESTException(Exception):
     def __init__(self, msg, url=None, email=None, exc_info=False):
@@ -30,33 +31,25 @@ class LogaltyRESTException(Exception):
         super().__init__("".join(msg))
 
 
-def _post(url, filename=None, file=None, json_data=None, cookies=None):
+def _post(url, filename=None, file=None, json_data=None, cookies=None, auth_user=None, auth_pass=None):
     files = {}
     data = {}
 
     if file and filename:
-        # Guess MIME type
-        mime_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
-        files["file"] = (filename, file, mime_type)
+        files["file"] = (filename, file)
 
     if json_data:
-        # Flatten JSON dict into form fields (multipart-style)
-        for key, value in json_data.items():
-            data[key] = value
+        data["destination"] = json_data["destination"]
 
-    # Logging for debug
+    # Log info
     LOGGER.info(f"📡 POST to URL: {url}")
-    LOGGER.info(f"📁 Sending file: {files.get('file')[0] if 'file' in files else 'None'}")
+    LOGGER.info(f"📁 Sending file: {list(files.keys()) if files else 'None'}")
     LOGGER.info(f"📦 Payload data: {data}")
 
-    response = requests.post(url, files=files, data=data, cookies=cookies)
+    # Add basic auth
+    auth = HTTPBasicAuth(auth_user, auth_pass) if auth_user and auth_pass else None
 
-    LOGGER.info(f"✅ Response status code: {response.status_code}")
-    if not response.ok:
-        LOGGER.error(f"❌ Error response: {response.text}")
-        response.raise_for_status()
-
-    return response
+    return requests.post(url, files=files, data=data, cookies=cookies, auth=auth)
 
 
 class Logalty(models.Model):
@@ -83,6 +76,10 @@ class Logalty(models.Model):
         Location.AIP_STORAGE,
         Location.DIP_STORAGE,
     ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(args, kwargs)
+        self.auth_user = None
 
     def browse(self, path):
         """Browse a path in the storage."""
@@ -144,7 +141,6 @@ class Logalty(models.Model):
                 filename = os.path.basename(file_path)
                 file_bytes = f.read()
 
-            # Prepare JSON payload as part of multipart form
             payload = {
                 "destination": dest
             }
@@ -155,6 +151,8 @@ class Logalty(models.Model):
                 file=file_bytes,
                 json_data=payload,
                 cookies=None,
+                auth_user=self.logalty_user,  # Provide these attributes in your class
+                auth_pass=self.logalty_pass
             )
 
         except Exception as e:
