@@ -1,4 +1,5 @@
 import os
+import json
 import mimetypes
 import requests
 import logging
@@ -7,8 +8,6 @@ import traceback
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from requests.auth import HTTPBasicAuth
-from django.conf import settings
-
 from archivematica.storage_service.locations.models.location import Location
 
 API_BASE_URL = "http://localhost:8082/storage/api"
@@ -18,6 +17,7 @@ HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
 DS_SCHEME = "https"
 DFLT_AS_PORT = 8089
 DFLT_DS_PORT = 443
+
 
 class LogaltyRESTException(Exception):
     def __init__(self, msg, url=None, email=None, exc_info=False):
@@ -29,27 +29,6 @@ class LogaltyRESTException(Exception):
         if exc_info:
             msg.append(f" {traceback.format_exc()}")
         super().__init__("".join(msg))
-
-
-def _post(url, filename=None, file=None, json_data=None, cookies=None, auth_user=None, auth_pass=None):
-    files = {}
-    data = {}
-
-    if file and filename:
-        files["file"] = (filename, file)
-
-    if json_data:
-        data["destination"] = json_data["destination"]
-
-    # Log info
-    LOGGER.info(f"📡 POST to URL: {url}")
-    LOGGER.info(f"📁 Sending file: {list(files.keys()) if files else 'None'}")
-    LOGGER.info(f"📦 Payload data: {data}")
-
-    # Add basic auth
-    auth = HTTPBasicAuth(auth_user, auth_pass) if auth_user and auth_pass else None
-
-    return requests.post(url, files=files, data=data, cookies=cookies, auth=auth)
 
 
 class Logalty(models.Model):
@@ -76,10 +55,6 @@ class Logalty(models.Model):
         Location.AIP_STORAGE,
         Location.DIP_STORAGE,
     ]
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(args, kwargs)
-        self.auth_user = None
 
     def browse(self, path):
         """Browse a path in the storage."""
@@ -145,7 +120,7 @@ class Logalty(models.Model):
                 "destination": dest
             }
 
-            _post(
+            self._post(
                 url,
                 filename=filename,
                 file=file_bytes,
@@ -157,3 +132,24 @@ class Logalty(models.Model):
 
         except Exception as e:
             raise LogaltyRESTException(f"Error sending {basename} to {base_url}: {e}")
+
+
+    def _post(self,url=None, filename=None, file=None, json_data=None, cookies=None, auth_user=None, auth_pass=None):
+        files = {}
+        data = {}
+
+        if file and filename:
+            files["file"] = (filename, file)
+
+        if json_data:
+            data["destination"] = json_data["destination"]
+
+        # Log info
+        LOGGER.info(f"📡 POST to URL: {url}")
+        LOGGER.info(f"📁 Sending file: {list(files.keys()) if files else 'None'}")
+        LOGGER.info(f"📦 Payload data: {data}")
+
+        # Add basic auth
+        auth = HTTPBasicAuth(auth_user, auth_pass) if auth_user and auth_pass else None
+
+        return requests.post(url, files=files, data=data, cookies=cookies, auth=auth)
