@@ -129,36 +129,35 @@ class Logalty(models.Model):
 
             # Prepare JSON payload
             payload = {
-                "file": file_bytes,
                 "destination": dest
             }
             if package.package_type == "DIP":
                 self._post(
                     base_url + "/dip",
-                    data=payload,
+                    file=file_bytes,
+                    json_data=payload,
                     cookies=None,
                 )
             else:
                 self._post(
                     base_url + "/aip",
-                    data=payload,
+                    file=file_bytes,
+                    json_data=payload,
                     cookies=None,
                 )
 
         except Exception:
             raise LogaltyRESTException(f"Error sending {basename} to {base_url}.")
 
-    def _post(self, url, data=None, cookies=None, headers=None):
-        if headers is None:
-            headers = {"Content-Type": "application/json"}
-        LOGGER.info("🔗 POST request to: %s", url)
-        LOGGER.info("📦 Headers:\n%s", json.dumps(headers, indent=2))
+    def _post(self, url, file=None, json_data=None, cookies=None):
+        files = {}
+        data = {}
 
-        try:
-            response = requests.post(url, json=data, cookies=cookies, headers=headers)
-            LOGGER.info("✅ Response Status: %s", response.status_code)
-            LOGGER.debug("📥 Response Body: %s", response.text)
-            return response
-        except Exception as e:
-            LOGGER.error("❌ POST request failed: %s", str(e))
-            raise
+        if file:
+            files["file"] = ("filename", file)  # (name, file-like object)
+
+        if json_data:
+            # Convert the JSON dict to a string before sending
+            data["destination"] = json_data["destination"]
+
+        return requests.post(url, files=files, data=data, cookies=cookies)
