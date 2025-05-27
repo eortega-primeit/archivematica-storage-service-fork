@@ -1,3 +1,4 @@
+import base64
 import os
 import requests
 import logging
@@ -86,7 +87,7 @@ class Logalty(models.Model):
         Moves self.staging_path/source_path to destination_path. (UPLOAD FILE)
         """
         LOGGER.info(
-            "On move_from_storage_service of storage api service --> source_path: %s, destination_path: %s, package: %s",
+            "On move_from_storage_service of storage api service --> source_path: %s, destination_path: %s, package: {%s}",
             source_path,
             destination_path,
             package
@@ -104,12 +105,12 @@ class Logalty(models.Model):
                 for basename in files:
                     entry = os.path.join(path, basename)
                     dest = entry.replace(src_path, dest_path, 1)
-                    self.upload_object(basename, dest, path)
+                    self.upload_object(basename, dest, path,package)
 
         elif os.path.isfile(source_path):
             # strip leading slash on dest_path
             dest_path = destination_path.lstrip("/")
-            self.upload_object(os.path.basename(source_path), destination_path, source_path)
+            self.upload_object(os.path.basename(source_path), destination_path, source_path,package)
 
         # if package is None:
         #     raise LogaltyRESTException("DSpace requires package param.")
@@ -144,23 +145,34 @@ class Logalty(models.Model):
         # finally:
         #     self._logout_from_storage_rest(ds_sessionid)
 
-    def upload_object(self, basename, dest, path):
-        base_url = f"self.logalty_url/file"
-        LOGGER.info(
-            "Upload service --> base_url: %s, dest: %s",
-            base_url, dest
-        )
+    def upload_object(self, basename, dest, path,package):
+        base_url = f"{self.logalty_url}/file"
+        LOGGER.info("Upload OBJECT --> base_url: %s, dest: %s, package_type: %s", base_url, dest,package.package_type)
         try:
-            with open(os.path.join(path, basename), "rb") as content:
+            # Read file bytes
+            with open(os.path.join(path, basename), "rb") as f:
+                file_bytes = f.read()
+
+            # Prepare JSON payload
+            payload = {
+                "file": file_bytes,
+                "destination": dest
+            }
+            if package.package_type == "DIP":
                 self._post(
-                    base_url,
-                    files=content,
-                    data=dest,
+                    base_url + "/dip",
+                    data=payload,
                     cookies=None,
                 )
+            else:
+                self._post(
+                    base_url + "/aip",
+                    data=payload,
+                    cookies=None,
+                )
+
         except Exception:
-            raise LogaltyRESTException(
-                f"Error sending {basename} to {base_url}.")
+            raise LogaltyRESTException(f"Error sending {basename} to {base_url}.")
 
     def _logout_from_storage_rest(self, ds_sessionid):
         """Logout from DSpace API."""
@@ -436,7 +448,7 @@ class Logalty(models.Model):
                 )
             return set_cookie[set_cookie.find("=") + 1 :]
 
-    def _post(self, url, files=None, data=None, cookies=None, headers=HEADERS):
-        return requests.post(
-            url, cookies=cookies, files=files, data=data, headers=headers
-        )
+    def _post(self, url, data=None, cookies=None, headers=None):
+        if headers is None:
+            headers = {"Content-Type": "application/json"}
+        return requests.post(url, json=data, cookies=cookies, headers=headers)
