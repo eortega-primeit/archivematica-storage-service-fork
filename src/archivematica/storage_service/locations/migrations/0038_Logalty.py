@@ -37,12 +37,6 @@ class Migration(migrations.Migration):
                         help_text=b"DSpace password to authenticate with", max_length=64
                     ),
                 ),
-                (
-                    "archive_format",
-                    models.OneToOneField(
-                        to="locations.Space", to_field="uuid", on_delete=models.CASCADE
-                    ),
-                ),
             ],
             options={"verbose_name": "Logalty Storage Module via REST API"},
             bases=(models.Model,),

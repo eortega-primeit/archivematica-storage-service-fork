@@ -54,15 +54,6 @@ class Logalty(models.Model):
         help_text=_("Logalty Storage Module Endpoint URL."),
     )
 
-    ARCHIVE_FORMAT_ZIP = "ZIP"
-    ARCHIVE_FORMAT_7Z = "7Z"
-    ARCHIVE_FORMAT_CHOICES = ((ARCHIVE_FORMAT_ZIP, "ZIP"), (ARCHIVE_FORMAT_7Z, "7z"))
-    archive_format = models.CharField(
-        max_length=3,
-        choices=ARCHIVE_FORMAT_CHOICES,
-        default=ARCHIVE_FORMAT_ZIP,
-        verbose_name=_("Archive format"),
-    )
     class Meta:
         verbose_name = "Logalty Storage API Service Space"
         app_label = 'locations'

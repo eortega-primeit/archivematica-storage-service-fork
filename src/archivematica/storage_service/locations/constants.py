@@ -128,7 +128,6 @@ PROTOCOL = {
             "logalty_url",
             "logalty_user",
             "logalty_pass",
-            "archive_format",
         ],
     },
 }
