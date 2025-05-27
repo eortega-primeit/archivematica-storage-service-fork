@@ -56,7 +56,16 @@ class Logalty(models.Model):
     ]
 
     def _api_url(self, path):
-        return f"{API_BASE_URL}/{self.space.uuid}/{path.strip('/')}"
+        cleaned_path = path.strip("/")
+        full_url = f"{API_BASE_URL}/{self.space.uuid}/{cleaned_path}"
+
+        LOGGER.info("🔧 Building API URL")
+        LOGGER.info("🧩 Base URL: %s", API_BASE_URL)
+        LOGGER.info("🆔 Space UUID: %s", self.space.uuid)
+        LOGGER.info("🪪 Path: %s", cleaned_path)
+        LOGGER.info("🔗 Full URL: %s", full_url)
+
+        return full_url
 
     def browse(self, path):
         """Browse a path in the storage."""
