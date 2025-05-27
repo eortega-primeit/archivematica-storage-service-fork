@@ -145,22 +145,22 @@ class Logalty(models.Model):
         #     self._logout_from_storage_rest(ds_sessionid)
 
     def upload_object(self, basename, dest, path):
-        base_url = "{}/items/{}".format(
-            self._get_base_url(self.logalty_url), dest
-        )
-        bitstream_url = "{}/bitstreams?name={}".format(
-            base_url, urllib.parse.quote(basename.encode("utf-8"))
+        base_url = f"self.logalty_url/file"
+        LOGGER.info(
+            "Upload service --> base_url: %s, dest: %s",
+            base_url, dest
         )
         try:
             with open(os.path.join(path, basename), "rb") as content:
                 self._post(
-                    bitstream_url,
-                    data=content,
+                    base_url,
+                    files=content,
+                    data=dest,
                     cookies=None,
                 )
         except Exception:
             raise LogaltyRESTException(
-                f"Error sending {basename} to {bitstream_url}.")
+                f"Error sending {basename} to {base_url}.")
 
     def _logout_from_storage_rest(self, ds_sessionid):
         """Logout from DSpace API."""
@@ -436,7 +436,7 @@ class Logalty(models.Model):
                 )
             return set_cookie[set_cookie.find("=") + 1 :]
 
-    def _post(self, url, data=None, cookies=None, headers=HEADERS):
+    def _post(self, url, files=None, data=None, cookies=None, headers=HEADERS):
         return requests.post(
-            url, cookies=cookies, data=data, headers=headers, verify=self.verify_ssl
+            url, cookies=cookies, files=files, data=data, headers=headers
         )
