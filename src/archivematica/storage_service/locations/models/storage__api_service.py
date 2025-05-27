@@ -1,11 +1,11 @@
 import os
+import mimetypes
 import requests
 import logging
 import traceback
 
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from requests.auth import HTTPBasicAuth
 
 from archivematica.storage_service.locations.models.location import Location
 
@@ -16,10 +16,6 @@ HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
 DS_SCHEME = "https"
 DFLT_AS_PORT = 8089
 DFLT_DS_PORT = 443
-
-bucket_name = "ipds-9b977a6434d5"
-region = "eu-south-2"
-
 
 
 class LogaltyRESTException(Exception):
@@ -32,6 +28,36 @@ class LogaltyRESTException(Exception):
         if exc_info:
             msg.append(f" {traceback.format_exc()}")
         super().__init__("".join(msg))
+
+
+def _post(url, filename=None, file=None, json_data=None, cookies=None):
+    files = {}
+    data = {}
+
+    if file and filename:
+        # Guess MIME type
+        mime_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+        files["file"] = (filename, file, mime_type)
+
+    if json_data:
+        # Flatten JSON dict into form fields (multipart-style)
+        for key, value in json_data.items():
+            data[key] = value
+
+    # Logging for debug
+    LOGGER.info(f"📡 POST to URL: {url}")
+    LOGGER.info(f"📁 Sending file: {files.get('file')[0] if 'file' in files else 'None'}")
+    LOGGER.info(f"📦 Payload data: {data}")
+
+    response = requests.post(url, files=files, data=data, cookies=cookies)
+
+    LOGGER.info(f"✅ Response status code: {response.status_code}")
+    if not response.ok:
+        LOGGER.error(f"❌ Error response: {response.text}")
+        response.raise_for_status()
+
+    return response
+
 
 class Logalty(models.Model):
     space = models.OneToOneField("Space", to_field='uuid', on_delete=models.CASCADE)
@@ -57,6 +83,7 @@ class Logalty(models.Model):
         Location.AIP_STORAGE,
         Location.DIP_STORAGE,
     ]
+
     def browse(self, path):
         """Browse a path in the storage."""
         pass
@@ -70,25 +97,6 @@ class Logalty(models.Model):
         Moves src_path to dest_space.staging_path/dest_path. (DOWNLOAD FILE)
         Assumes API handles both source and destination info.
         """
-        # S3._ensure_bucket_exists()
-        # bucket = self.resource.Bucket(S3.bucket_name)
-        #
-        # # strip leading slash on src_path
-        # src_path = src_path.lstrip("/").rstrip(".")
-        # dest_path = dest_path.rstrip(".")
-        #
-        # # Directories need to have trailing slashes to ensure they are created
-        # # on the staging path.
-        # if not utils.package_is_file(dest_path):
-        #     dest_path = os.path.join(dest_path, "")
-        #
-        # objects = self.resource.Bucket(S3.bucket_name).objects.filter(Prefix=src_path)
-        #
-        # for objectSummary in objects:
-        #     dest_file = objectSummary.key.replace(src_path, dest_path, 1)
-        #     self.space.create_local_directory(dest_file)
-        #     if not os.path.isdir(dest_file):
-        #         bucket.download_file(objectSummary.key, dest_file)
         pass
 
     def move_from_storage_service(self, source_path, destination_path, package=None):
@@ -123,26 +131,6 @@ class Logalty(models.Model):
             dest_path = destination_path.lstrip("/")
             self.upload_object(os.path.basename(source_path), destination_path, source_path,package, isFile=True)
 
-    def _post(url, filename=None, file=None, json_data=None, cookies=None, auth_user=None, auth_pass=None):
-        files = {}
-        data = {}
-
-        if file and filename:
-            files["file"] = (filename, file)
-
-        if json_data:
-            data["destination"] = json_data["destination"]
-
-        # Log info
-        LOGGER.info(f"📡 POST to URL: {url}")
-        LOGGER.info(f"📁 Sending file: {list(files.keys()) if files else 'None'}")
-        LOGGER.info(f"📦 Payload data: {data}")
-
-        # Add basic auth
-        auth = HTTPBasicAuth(auth_user, auth_pass) if auth_user and auth_pass else None
-
-        requests.post(url, files=files, data=data, cookies=cookies, auth=auth)
-
     def upload_object(self, basename, dest, path, package, isFile=False):
         base_url = f"{self.logalty_url}/file"
         endpoint = "/dip" if package.package_type == "DIP" else "/aip"
@@ -156,17 +144,17 @@ class Logalty(models.Model):
                 filename = os.path.basename(file_path)
                 file_bytes = f.read()
 
+            # Prepare JSON payload as part of multipart form
             payload = {
                 "destination": dest
             }
 
-            self._post(
+            _post(
                 url,
+                filename=filename,
                 file=file_bytes,
                 json_data=payload,
                 cookies=None,
-                auth_user=self.logalty_user,  # Provide these attributes in your class
-                auth_pass=self.logalty_pass
             )
 
         except Exception as e:
