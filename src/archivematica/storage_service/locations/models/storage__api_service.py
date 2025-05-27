@@ -153,7 +153,6 @@ class Logalty(models.Model):
             headers = {"Content-Type": "application/json"}
         LOGGER.info("🔗 POST request to: %s", url)
         LOGGER.info("📦 Headers:\n%s", json.dumps(headers, indent=2))
-        LOGGER.info("📤 Payload:\n%s", json.dumps(data, indent=2, ensure_ascii=False))
 
         try:
             response = requests.post(url, json=data, cookies=cookies, headers=headers)
