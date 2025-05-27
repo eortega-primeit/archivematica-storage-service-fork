@@ -1,23 +1,22 @@
 import os
-import mimetypes
+import json
 import requests
 import logging
 import traceback
 
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from requests.auth import HTTPBasicAuth
-from django.conf import settings
 
 from archivematica.storage_service.locations.models.location import Location
 
-API_BASE_URL = "http://localhost:8082/storage/api"
+API_BASE_URL = "http://localhost:8082/api/storage"
 
 LOGGER = logging.getLogger(__name__)
 HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
 DS_SCHEME = "https"
 DFLT_AS_PORT = 8089
 DFLT_DS_PORT = 443
+
 
 class LogaltyRESTException(Exception):
     def __init__(self, msg, url=None, email=None, exc_info=False):
@@ -29,27 +28,6 @@ class LogaltyRESTException(Exception):
         if exc_info:
             msg.append(f" {traceback.format_exc()}")
         super().__init__("".join(msg))
-
-
-def _post(url, filename=None, file=None, json_data=None, cookies=None, auth_user=None, auth_pass=None):
-    files = {}
-    data = {}
-
-    if file and filename:
-        files["file"] = (filename, file)
-
-    if json_data:
-        data["destination"] = json_data["destination"]
-
-    # Log info
-    LOGGER.info(f"📡 POST to URL: {url}")
-    LOGGER.info(f"📁 Sending file: {list(files.keys()) if files else 'None'}")
-    LOGGER.info(f"📦 Payload data: {data}")
-
-    # Add basic auth
-    auth = HTTPBasicAuth(auth_user, auth_pass) if auth_user and auth_pass else None
-
-    return requests.post(url, files=files, data=data, cookies=cookies, auth=auth)
 
 
 class Logalty(models.Model):
@@ -77,9 +55,17 @@ class Logalty(models.Model):
         Location.DIP_STORAGE,
     ]
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(args, kwargs)
-        self.auth_user = None
+    def _api_url(self, path):
+        cleaned_path = path.strip("/")
+        full_url = f"{API_BASE_URL}/{self.space.uuid}/{cleaned_path}"
+
+        LOGGER.info("🔧 Building API URL")
+        LOGGER.info("🧩 Base URL: %s", API_BASE_URL)
+        LOGGER.info("🆔 Space UUID: %s", self.space.uuid)
+        LOGGER.info("🪪 Path: %s", cleaned_path)
+        LOGGER.info("🔗 Full URL: %s", full_url)
+
+        return full_url
 
     def browse(self, path):
         """Browse a path in the storage."""
@@ -108,7 +94,7 @@ class Logalty(models.Model):
         )
 
         if os.path.isdir(source_path):
-            LOGGER.info("Is a directory: %s", source_path)
+            LOGGER.info(("Is a directroy: %s"), source_path)
             # ensure trailing slash on both paths
             src_path = os.path.join(source_path, "")
             dest_path = os.path.join(destination_path, "")
@@ -123,37 +109,56 @@ class Logalty(models.Model):
                     self.upload_object(basename, dest, path,package, isFile=False)
 
         elif os.path.isfile(source_path):
-            LOGGER.info("Is a file: %s", source_path)
+            LOGGER.info(("Is a file: %s"), source_path)
             # strip leading slash on dest_path
             dest_path = destination_path.lstrip("/")
             self.upload_object(os.path.basename(source_path), destination_path, source_path,package, isFile=True)
 
     def upload_object(self, basename, dest, path, package, isFile=False):
         base_url = f"{self.logalty_url}/file"
-        endpoint = "/dip" if package.package_type == "DIP" else "/aip"
-        url = base_url + endpoint
-
         LOGGER.info("Upload OBJECT --> base_url: %s, dest: %s, package_type: %s", base_url, dest, package.package_type)
-
         try:
-            file_path = path if isFile else os.path.join(path, basename)
-            with open(file_path, "rb") as f:
-                filename = os.path.basename(file_path)
-                file_bytes = f.read()
+            # Read file bytes
+            if isFile:
+                with open(path, "rb") as f:
+                    file_bytes = f.read()
+            else:
+                with open(os.path.join(path, basename), "rb") as f:
+                    file_bytes = f.read()
 
+
+            # Prepare JSON payload
             payload = {
                 "destination": dest
             }
+            if package.package_type == "DIP":
+                self._post(
+                    base_url + "/dip",
+                    file=file_bytes,
+                    json_data=payload,
+                    cookies=None,
 
-            _post(
-                url,
-                filename=filename,
-                file=file_bytes,
-                json_data=payload,
-                cookies=None,
-                auth_user=self.logalty_user,  # Provide these attributes in your class
-                auth_pass=self.logalty_pass
-            )
+                    )
+            else:
+                self._post(
+                    base_url + "/aip",
+                    file=file_bytes,
+                    json_data=payload,
+                    cookies=None,
+                    )
 
-        except Exception as e:
-            raise LogaltyRESTException(f"Error sending {basename} to {base_url}: {e}")
+        except Exception:
+            raise LogaltyRESTException(f"Error sending {basename} to {base_url}.")
+
+    def _post(self, url, file=None, json_data=None, cookies=None):
+        files = {}
+        data = {}
+
+        if file:
+            files["file"] = ("filename", file)  # (name, file-like object)
+
+        if json_data:
+            # Convert the JSON dict to a string before sending
+            data["destination"] = json_data["destination"]
+
+        return requests.post(url, files=files, data=data, cookies=cookies, auth=(self.logalty_user, self.logalty_pass))
