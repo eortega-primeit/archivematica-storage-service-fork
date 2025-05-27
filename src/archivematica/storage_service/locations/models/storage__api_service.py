@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 import logging
 import traceback
@@ -134,4 +135,15 @@ class Logalty(models.Model):
     def _post(self, url, data=None, cookies=None, headers=None):
         if headers is None:
             headers = {"Content-Type": "application/json"}
-        return requests.post(url, json=data, cookies=cookies, headers=headers)
+        LOGGER.info("🔗 POST request to: %s", url)
+        LOGGER.info("📦 Headers:\n%s", json.dumps(headers, indent=2))
+        LOGGER.info("📤 Payload:\n%s", json.dumps(data, indent=2, ensure_ascii=False))
+
+        try:
+            response = requests.post(url, json=data, cookies=cookies, headers=headers)
+            LOGGER.info("✅ Response Status: %s", response.status_code)
+            LOGGER.debug("📥 Response Body: %s", response.text)
+            return response
+        except Exception as e:
+            LOGGER.error("❌ POST request failed: %s", str(e))
+            raise
