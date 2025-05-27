@@ -38,7 +38,7 @@ class LogaltyRESTException(Exception):
             msg.append(f" {traceback.format_exc()}")
         super().__init__("".join(msg))
 
-class LogaltyStorageAPIServiceSpace(models.Model):
+class Logalty(models.Model):
     space = models.OneToOneField("Space", to_field='uuid', on_delete=models.CASCADE)
     logalty_user = models.CharField(
         max_length=64, blank=True, verbose_name=_("User name for Logalty Storage Service"),
@@ -104,7 +104,7 @@ class LogaltyStorageAPIServiceSpace(models.Model):
         Moves self.staging_path/source_path to destination_path. (UPLOAD FILE)
         """
         LOGGER.info(
-            "source_path: %s, destination_path: %s, package: %s",
+            "On move_from_storage_service of storage api service --> source_path: %s, destination_path: %s, package: %s",
             source_path,
             destination_path,
             package

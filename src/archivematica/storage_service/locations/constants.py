@@ -122,7 +122,7 @@ PROTOCOL = {
         ],
     },
     models.Space.LOGALTY: {
-        "model": models.LogaltyStorageAPIServiceSpace,
+        "model": models.Logalty,
         "form": forms.LogaltyForm,
         "fields": [
             "logalty_url",
