@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 
 from archivematica.storage_service.locations.models.location import Location
 
-API_BASE_URL = "http://localhost:8082/api/storage"
+API_BASE_URL = "http://localhost:8082/storage/api"
 
 LOGGER = logging.getLogger(__name__)
 HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
@@ -159,5 +159,9 @@ class Logalty(models.Model):
         if json_data:
             # Convert the JSON dict to a string before sending
             data["destination"] = json_data["destination"]
+        # Log the URL and data being sent
+        LOGGER.info(f"📡 POST to URL: {url}")
+        LOGGER.info(f"📁 Sending file: {files.keys() if files else 'None'}")
+        LOGGER.info(f"📦 Payload data: {data}")
 
         return requests.post(url, files=files, data=data, cookies=cookies)
