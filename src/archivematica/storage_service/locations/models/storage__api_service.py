@@ -114,7 +114,7 @@ class Logalty(models.Model):
             dest_path = destination_path.lstrip("/")
             self.upload_object(os.path.basename(source_path), destination_path, source_path,package, isFile=True)
 
-    def upload_object(self, basename, dest, path, package):
+    def upload_object(self, basename, dest, path, package, isFile=False):
         base_url = f"{self.logalty_url}/file"
         LOGGER.info("Upload OBJECT --> base_url: %s, dest: %s, package_type: %s", base_url, dest, package.package_type)
         try:
