@@ -123,7 +123,7 @@ class ArchipelagoForm(forms.ModelForm):
 
 class LogaltyForm(forms.ModelForm):
     class Meta:
-        model = models.LogaltyStorageAPIServiceSpace
+        model = models.Logalty
         fields = ("logalty_url", "logalty_user", "logalty_pass","archive_format")
 
 
