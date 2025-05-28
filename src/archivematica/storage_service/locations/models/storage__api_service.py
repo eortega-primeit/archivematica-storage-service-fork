@@ -83,7 +83,7 @@ class Logalty(models.Model):
         )
 
         try:
-            if src_path.endswith(".7z") or "-" in os.path.basename(src_path):
+            if src_path.endswith(".7z"):
                 # AIP - Download and save as is
                 LOGGER.info("Assuming AIP file (no unzip): %s", src_path)
                 base_url = f"{self.logalty_url}/file/download/aip"
@@ -111,10 +111,11 @@ class Logalty(models.Model):
 
                 # Unzip into destination path
                 with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
-                    self.space.create_local_directory(dest_path)
-                    zip_ref.extractall(dest_path)
+                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    LOGGER.info(f"makedirs for {os.path.dirname(dest_path)}")
+                    zip_ref.extractall(os.path.dirname(dest_path))
 
-                LOGGER.info(f"DIP downloaded and extracted to {dest_path}")
+                LOGGER.info(f"DIP downloaded and extracted to {os.path.dirname(dest_path)}")
 
         except requests.RequestException as e:
             LOGGER.error(f"HTTP request failed: {e}")
