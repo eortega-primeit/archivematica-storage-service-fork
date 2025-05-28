@@ -9,8 +9,6 @@ from django.utils.translation import gettext_lazy as _
 
 from archivematica.storage_service.locations.models.location import Location
 
-API_BASE_URL = "http://localhost:8082/api/storage"
-
 LOGGER = logging.getLogger(__name__)
 HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
 DS_SCHEME = "https"
@@ -55,18 +53,6 @@ class Logalty(models.Model):
         Location.DIP_STORAGE,
     ]
 
-    def _api_url(self, path):
-        cleaned_path = path.strip("/")
-        full_url = f"{API_BASE_URL}/{self.space.uuid}/{cleaned_path}"
-
-        LOGGER.info("🔧 Building API URL")
-        LOGGER.info("🧩 Base URL: %s", API_BASE_URL)
-        LOGGER.info("🆔 Space UUID: %s", self.space.uuid)
-        LOGGER.info("🪪 Path: %s", cleaned_path)
-        LOGGER.info("🔗 Full URL: %s", full_url)
-
-        return full_url
-
     def browse(self, path):
         """Browse a path in the storage."""
         pass
@@ -80,6 +66,12 @@ class Logalty(models.Model):
         Moves src_path to dest_space.staging_path/dest_path. (DOWNLOAD FILE)
         Assumes API handles both source and destination info.
         """
+        LOGGER.info(
+            "On move_to_storage_service of storage api service --> source_path: %s, destination_path: %s, dest_space: {%s}",
+            src_path,
+            dest_path,
+            dest_space
+        )
         pass
 
     def move_from_storage_service(self, source_path, destination_path, package=None):
