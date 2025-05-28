@@ -55,10 +55,18 @@ class Logalty(models.Model):
 
     def browse(self, path):
         """Browse a path in the storage."""
+        LOGGER.info(
+            "On browse of storage api service --> path: {%s}",
+            path
+        )
         pass
 
     def delete_path(self, delete_path):
         """Delete a path in the storage."""
+        LOGGER.info(
+            "On delete_path of storage api service --> delete_path: {%s}",
+            delete_path
+        )
         pass
 
     def move_to_storage_service(self, src_path, dest_path, dest_space):
