@@ -83,7 +83,7 @@ class Logalty(models.Model):
         )
 
         try:
-            if src_path.endswith(".7z"):
+            if src_path.endswith((".7z", ".zip", ".rar", ".tar.gz", ".tar", ".gz",".pbzip2")):
                 # AIP - Download and save as is
                 LOGGER.info("Assuming AIP file (no unzip): %s", src_path)
                 base_url = f"{self.logalty_url}/file/download/aip"
