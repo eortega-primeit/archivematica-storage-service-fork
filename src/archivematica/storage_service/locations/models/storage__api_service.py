@@ -111,11 +111,11 @@ class Logalty(models.Model):
 
                 # Unzip into destination path
                 with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
-                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                    LOGGER.info(f"makedirs for {os.path.dirname(dest_path)}")
-                    zip_ref.extractall(os.path.dirname(dest_path))
+                    os.makedirs(dest_path, exist_ok=True)
+                    LOGGER.info(f"makedirs for {dest_path}")
+                    zip_ref.extractall(dest_path)
 
-                LOGGER.info(f"DIP downloaded and extracted to {os.path.dirname(dest_path)}")
+                LOGGER.info(f"DIP downloaded and extracted to {dest_path}")
 
         except requests.RequestException as e:
             LOGGER.error(f"HTTP request failed: {e}")
