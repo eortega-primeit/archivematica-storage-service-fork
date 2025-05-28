@@ -71,8 +71,9 @@ class Logalty(models.Model):
 
     def move_to_storage_service(self, src_path, dest_path, dest_space):
         """
-        Downloads file from Spring Boot API via GET and unzips the content
-        into dest_space.staging_path/dest_path.
+        Downloads AIP or DIP from Spring Boot API via GET.
+        - AIP is saved directly as a file.
+        - DIP is assumed to be a zipped folder and is extracted.
         """
         LOGGER.info(
             "On move_to_storage_service of storage api service --> source_path: %s, destination_path: %s, dest_space: {%s}",
@@ -82,35 +83,38 @@ class Logalty(models.Model):
         )
 
         try:
-            if os.path.isfile(src_path):
-                LOGGER.info("Is a file: %s", src_path)
-                # Construct URL with GET parameter
+            if src_path.endswith(".7z") or "-" in os.path.basename(src_path):
+                # AIP - Download and save as is
+                LOGGER.info("Assuming AIP file (no unzip): %s", src_path)
                 base_url = f"{self.logalty_url}/file/download/aip"
-                params = {"origin": src_path}  # Pass src_path as query param
-
-                # Send GET request
+                params = {"origin": src_path}
                 response = requests.get(base_url, params=params, stream=True)
-                response.raise_for_status()  # Raise exception on HTTP errors
+                response.raise_for_status()
 
-                # Assuming the response is a zipped content
-                with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
-                    self.space.create_local_directory(dest_path)
-                    zip_ref.extractall(dest_path)
+                # Ensure the directory exists
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
-                LOGGER.info(f"Downloaded and extracted to {dest_path}")
-            elif os.path.isdir(src_path):
-                LOGGER.info("Is a directroy: %s", src_path)
-                # Construct URL with GET parameter
+                # Save the file directly
+                with open(dest_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+                LOGGER.info(f"AIP downloaded to {dest_path}")
+
+            else:
+                # DIP - Download and unzip
+                LOGGER.info("Assuming DIP folder (will unzip): %s", src_path)
                 base_url = f"{self.logalty_url}/file/download/dip"
-                params = {"origin": src_path}  # Pass src_path as query param
-
-                # Send GET request
+                params = {"origin": src_path}
                 response = requests.get(base_url, params=params, stream=True)
-                response.raise_for_status()  # Raise exception on HTTP errors
-                # Assuming the response is a zipped content
+                response.raise_for_status()
+
+                # Unzip into destination path
                 with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
                     self.space.create_local_directory(dest_path)
                     zip_ref.extractall(dest_path)
+
+                LOGGER.info(f"DIP downloaded and extracted to {dest_path}")
 
         except requests.RequestException as e:
             LOGGER.error(f"HTTP request failed: {e}")
@@ -121,6 +125,7 @@ class Logalty(models.Model):
         except Exception as e:
             LOGGER.error(f"Unexpected error: {e}")
             raise LogaltyRESTException(f"Error in move_to_storage_service: {e}")
+
 
 
     def move_from_storage_service(self, source_path, destination_path, package=None):
