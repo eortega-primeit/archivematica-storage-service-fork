@@ -1,12 +1,12 @@
 import os
-import json
 import requests
 import logging
 import traceback
+import zipfile
+import io
 
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-
 from archivematica.storage_service.locations.models.location import Location
 
 LOGGER = logging.getLogger(__name__)
@@ -71,8 +71,8 @@ class Logalty(models.Model):
 
     def move_to_storage_service(self, src_path, dest_path, dest_space):
         """
-        Moves src_path to dest_space.staging_path/dest_path. (DOWNLOAD FILE)
-        Assumes API handles both source and destination info.
+        Downloads file from Spring Boot API via GET and unzips the content
+        into dest_space.staging_path/dest_path.
         """
         LOGGER.info(
             "On move_to_storage_service of storage api service --> source_path: %s, destination_path: %s, dest_space: {%s}",
@@ -80,7 +80,48 @@ class Logalty(models.Model):
             dest_path,
             dest_space
         )
-        pass
+
+        try:
+            if os.path.isfile(src_path):
+                LOGGER.info("Is a file: %s", src_path)
+                # Construct URL with GET parameter
+                base_url = f"{self.logalty_url}/file/download/aip"
+                params = {"origin": src_path}  # Pass src_path as query param
+
+                # Send GET request
+                response = requests.get(base_url, params=params, stream=True)
+                response.raise_for_status()  # Raise exception on HTTP errors
+
+                # Assuming the response is a zipped content
+                with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
+                    self.space.create_local_directory(dest_path)
+                    zip_ref.extractall(dest_path)
+
+                LOGGER.info(f"Downloaded and extracted to {dest_path}")
+            elif os.path.isdir(src_path):
+                LOGGER.info("Is a directroy: %s", src_path)
+                # Construct URL with GET parameter
+                base_url = f"{self.logalty_url}/file/download/dip"
+                params = {"origin": src_path}  # Pass src_path as query param
+
+                # Send GET request
+                response = requests.get(base_url, params=params, stream=True)
+                response.raise_for_status()  # Raise exception on HTTP errors
+                # Assuming the response is a zipped content
+                with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
+                    self.space.create_local_directory(dest_path)
+                    zip_ref.extractall(dest_path)
+
+        except requests.RequestException as e:
+            LOGGER.error(f"HTTP request failed: {e}")
+            raise LogaltyRESTException(f"Error downloading file via GET: {e}")
+        except zipfile.BadZipFile as e:
+            LOGGER.error(f"Failed to unzip content: {e}")
+            raise LogaltyRESTException(f"Error unzipping downloaded file: {e}")
+        except Exception as e:
+            LOGGER.error(f"Unexpected error: {e}")
+            raise LogaltyRESTException(f"Error in move_to_storage_service: {e}")
+
 
     def move_from_storage_service(self, source_path, destination_path, package=None):
         """
@@ -94,7 +135,7 @@ class Logalty(models.Model):
         )
 
         if os.path.isdir(source_path):
-            LOGGER.info(("Is a directroy: %s"), source_path)
+            LOGGER.info("Is a directroy: %s", source_path)
             # ensure trailing slash on both paths
             src_path = os.path.join(source_path, "")
             dest_path = os.path.join(destination_path, "")
@@ -109,7 +150,7 @@ class Logalty(models.Model):
                     self.upload_object(basename, dest, path,package, isFile=False)
 
         elif os.path.isfile(source_path):
-            LOGGER.info(("Is a file: %s"), source_path)
+            LOGGER.info("Is a file: %s", source_path)
             # strip leading slash on dest_path
             dest_path = destination_path.lstrip("/")
             self.upload_object(os.path.basename(source_path), destination_path, source_path,package, isFile=True)
