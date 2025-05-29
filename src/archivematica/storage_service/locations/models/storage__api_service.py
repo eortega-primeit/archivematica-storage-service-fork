@@ -88,7 +88,7 @@ class Logalty(models.Model):
                 LOGGER.info("Assuming AIP file (no unzip): %s", src_path)
                 base_url = f"{self.logalty_url}/file/download/aip"
                 params = {"origin": src_path}
-                response = requests.get(base_url, params=params, stream=True)
+                response = requests.get(base_url, params=params, stream=True,auth=(self.logalty_user, self.logalty_pass))
                 response.raise_for_status()
 
                 # Ensure the directory exists
@@ -106,7 +106,7 @@ class Logalty(models.Model):
                 LOGGER.info("Assuming DIP folder (will unzip): %s", src_path)
                 base_url = f"{self.logalty_url}/file/download/dip"
                 params = {"origin": src_path}
-                response = requests.get(base_url, params=params, stream=True)
+                response = requests.get(base_url, params=params, stream=True,auth=(self.logalty_user, self.logalty_pass))
                 response.raise_for_status()
 
                 # Unzip into destination path
