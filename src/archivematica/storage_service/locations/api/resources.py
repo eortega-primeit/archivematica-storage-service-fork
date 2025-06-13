@@ -1757,57 +1757,37 @@ class PackageResource(ModelResource):
         return sword_views.deposit_state(request, package or kwargs["uuid"])
 
     def _attempt_package_request_event(
-        self, package, request_info, event_type, event_status
+            self, package, request_info, event_type, event_status
     ):
-        """Generic package request handler, e.g. package recovery: RECOVER_REQ,
-        or package deletion: DEL_REQ.
-        """
-        LOGGER.info(
-            f"Package event: '{event_type}' requested, with package status: '{event_status}'"
-        )
-        LOGGER.debug(pprint.pformat(request_info))
-
+        """Aprobar automáticamente la solicitud de eliminación."""
+        LOGGER.info("✅ Aprobando automáticamente la solicitud de eliminación para el paquete {}", package.uuid)
+        LOGGER.debug("📄 Detalles de la solicitud:\n{}", pprint.pformat(request_info))
         pipeline = Pipeline.objects.get(uuid=request_info["pipeline"])
         request_description = event_type.replace("_", " ").lower()
 
-        # See if an event already exists
-        existing_requests = Event.objects.filter(
-            package=package, event_type=event_type, status=Event.SUBMITTED
-        ).count()
-        if existing_requests < 1:
-            request_event = Event(
-                package=package,
-                event_type=event_type,
-                status=Event.SUBMITTED,
-                event_reason=request_info["event_reason"],
-                pipeline=pipeline,
-                user_id=request_info["user_id"],
-                user_email=request_info["user_email"],
-                store_data=package.status,
-            )
+        # Crear el evento de eliminación directamente
+        request_event = Event(
+            package=package,
+            event_type=event_type,
+            status=Event.APPROVED,
+            approved_status = Package.DELETED,
+            event_reason=request_info["event_reason"],
+            pipeline=pipeline,
+            user_id=request_info["user_id"],
+            user_email=request_info["user_email"],
+            store_data=package.status,
+        )
+        package.status = Package.DELETED
+        package.save()
+        package.delete_from_storage()
 
-            # Update package status
-            package.status = event_status
-            package.save()
+        request_event.save()
+        response = {
+            "message": _("La solicitud de eliminación fue aprobada automáticamente.")
+        }
+        status_code = 202
 
-            request_event.save()
-            response = {
-                "message": _("%(event_type)s request created successfully.")
-                % {"event_type": request_description.title()},
-                "id": request_event.id,
-            }
-
-            status_code = 202
-        else:
-            response = {
-                "error_message": _(
-                    "A %(event_type)s request already exists for this AIP."
-                )
-                % {"event_type": request_description}
-            }
-            status_code = 200
-
-        return (status_code, response)
+        return status_code, response
 
     @_custom_endpoint(expected_methods=["get", "put", "delete"])
     def manage_contents(self, request, bundle, **kwargs):

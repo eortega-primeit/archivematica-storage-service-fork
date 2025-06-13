@@ -172,7 +172,7 @@ class Package(models.Model):
         help_text=_("For storing flexible, often Space-specific, attributes"),
     )
 
-    PACKAGE_TYPE_CAN_DELETE = (AIP, AIC, TRANSFER)
+    PACKAGE_TYPE_CAN_DELETE = (AIP,DIP, AIC, TRANSFER)
     PACKAGE_TYPE_CAN_DELETE_DIRECTLY = (DIP,)
     PACKAGE_TYPE_CAN_EXTRACT = (AIP, AIC)
     PACKAGE_TYPE_CAN_RECOVER = (AIP, AIC)
