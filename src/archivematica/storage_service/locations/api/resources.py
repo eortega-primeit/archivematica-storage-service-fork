@@ -1770,7 +1770,6 @@ class PackageResource(ModelResource):
             package=package,
             event_type=event_type,
             status=Event.APPROVED,
-            approved_status = Package.DELETED,
             event_reason=request_info["event_reason"],
             pipeline=pipeline,
             user_id=request_info["user_id"],
