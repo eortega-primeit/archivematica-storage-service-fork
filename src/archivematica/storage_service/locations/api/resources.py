@@ -1760,8 +1760,6 @@ class PackageResource(ModelResource):
             self, package, request_info, event_type, event_status
     ):
         """Aprobar automáticamente la solicitud de eliminación."""
-        LOGGER.info("✅ Aprobando automáticamente la solicitud de eliminación para el paquete {}", package.uuid)
-        LOGGER.debug("📄 Detalles de la solicitud:\n{}", pprint.pformat(request_info))
         pipeline = Pipeline.objects.get(uuid=request_info["pipeline"])
         request_description = event_type.replace("_", " ").lower()
 
