@@ -7,7 +7,7 @@ import traceback
 
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from archivematica.storage_service.locations.models.location import Location
+from .location import Location
 
 # Global constants
 LOGGER = logging.getLogger(__name__)
