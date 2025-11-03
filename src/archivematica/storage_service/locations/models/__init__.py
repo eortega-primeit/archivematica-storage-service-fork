@@ -46,4 +46,4 @@ from archivematica.storage_service.locations.models.replica_staging import (
 from archivematica.storage_service.locations.models.rclone import RClone
 from archivematica.storage_service.locations.models.swift import Swift
 from archivematica.storage_service.locations.models.s3 import S3
-from .storage__api_service import Logalty
+from .logalty import Logalty

@@ -1,6 +1,6 @@
 import os
 import io
-import zipfile
+import py7zr
 import logging
 import requests
 import traceback
@@ -81,13 +81,16 @@ class Logalty(models.Model):
     def move_to_storage_service(self, src_path, dest_path, dest_space):
         """
         Downloads AIP or DIP from Spring Boot API via GET.
-        - AIP is saved directly as a file.
-        - DIP is assumed to be a zipped folder and is extracted.
+        - AIP files (.7z, .zip, etc.) are saved directly as compressed files.
+        - DIP folders are downloaded as 7z archives and extracted.
         """
         LOGGER.info("⬇️ [DOWNLOAD] AIP/DIP from src: %s ➡ dest: %s | space: %s", src_path, dest_path, dest_space)
 
         try:
-            if src_path.endswith((".7z", ".zip", ".rar", ".tar.gz", ".tar", ".gz", ".pbzip2")):
+            # Determine if it's an AIP (compressed file) or DIP (folder to extract)
+            is_compressed_aip = src_path.endswith((".7z", ".zip", ".rar", ".tar.gz", ".tar", ".gz", ".pbzip2"))
+            
+            if is_compressed_aip:
                 LOGGER.info("📦 Treating as AIP file: %s", src_path)
                 url = f"{self.logalty_url}/file/download/aip"
             else:
@@ -100,23 +103,25 @@ class Logalty(models.Model):
 
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
-            if src_path.endswith((".zip", ".rar", ".tar.gz", ".tar", ".gz", ".pbzip2")):
+            if is_compressed_aip:
+                # Save AIP as a file without decompressing
                 with open(dest_path, "wb") as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
                 LOGGER.info("✅ AIP saved to %s", dest_path)
             else:
-                with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
+                # DIP comes as a 7z archive and needs to be extracted
+                with py7zr.SevenZipFile(io.BytesIO(response.content), mode='r') as archive:
                     os.makedirs(dest_path, exist_ok=True)
-                    zip_ref.extractall(dest_path)
+                    archive.extractall(path=dest_path)
                 LOGGER.info("✅ DIP extracted to %s", dest_path)
 
         except requests.RequestException as e:
             LOGGER.error("❌ HTTP request failed: %s", e)
             raise LogaltyRESTException(f"Error downloading file via GET: {e}")
-        except zipfile.BadZipFile as e:
-            LOGGER.error("❌ Failed to unzip content: %s", e)
-            raise LogaltyRESTException(f"Error unzipping downloaded file: {e}")
+        except py7zr.Bad7zFile as e:
+            LOGGER.error("❌ Failed to extract 7z content: %s", e)
+            raise LogaltyRESTException(f"Error extracting downloaded 7z file: {e}")
         except Exception as e:
             LOGGER.error("❌ Unexpected error: %s", e)
             raise LogaltyRESTException(f"Error in move_to_storage_service: {e}")

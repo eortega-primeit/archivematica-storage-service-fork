@@ -149,6 +149,7 @@ ENV FORWARDED_ALLOW_IPS=*
 COPY --chown=${USER_ID}:${GROUP_ID} --link . /src/
 
 RUN set -ex \
+	&& pyenv exec python3 -m pip install py7zr \
 	&& export SS_DB_URL=mysql://ne:ver@min/d \
 	&& pyenv exec python3 -m archivematica.storage_service.manage collectstatic --noinput --clear \
 	&& pyenv exec python3 -m archivematica.storage_service.manage compilemessages
