@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import py7zr
 import logging
 import requests
@@ -33,10 +34,10 @@ class Logalty(models.Model):
     space = models.OneToOneField("Space", to_field='uuid', on_delete=models.CASCADE)
 
     logalty_user = models.CharField(
-        max_length=64, blank=True, verbose_name=_("User name for Logalty Storage Service"),
+        max_length=64, blank=True, verbose_name=_("The username for Logalty Storage Service"),
     )
     logalty_pass = models.CharField(
-        max_length=256, blank=True, verbose_name=_("User name password for Logalty Storage Service"),
+        max_length=256, blank=True, verbose_name=_("The password for Logalty Storage Service"),
     )
     logalty_url = models.CharField(
         max_length=2048,
@@ -84,7 +85,26 @@ class Logalty(models.Model):
         - AIP files (.7z, .zip, etc.) are saved directly as compressed files.
         - DIP folders are downloaded as 7z archives and extracted.
         """
-        LOGGER.info("⬇️ [DOWNLOAD] AIP/DIP from src: %s ➡ dest: %s | space: %s", src_path, dest_path, dest_space)
+        # Extract package UUID from src_path to query database for user_id and object_salt
+        # Pattern: /5178/fb1b/f2ca/429c/94c9/1ed6/7c13/6830/... -> 5178fb1b-f2ca-429c-94c9-1ed67c136830
+        package_uuid = None
+        user_id = None
+        object_salt = None
+        
+        uuid_pattern = r'/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/'
+        match = re.search(uuid_pattern, src_path)
+        if match:
+            package_uuid = '-'.join(match.groups())
+            try:
+                from .package import Package
+                package = Package.objects.get(uuid=package_uuid)
+                if package.misc_attributes:
+                    user_id = package.misc_attributes.get("user_id")
+                    object_salt = package.misc_attributes.get("object_salt")
+            except Exception as e:
+                LOGGER.warning("Could not retrieve package metadata: %s", e)
+        
+        LOGGER.info("⬇️ [DOWNLOAD] AIP/DIP from src: %s ➡ dest: %s", src_path, dest_path)
 
         try:
             # Determine if it's an AIP (compressed file) or DIP (folder to extract)
@@ -97,7 +117,15 @@ class Logalty(models.Model):
                 LOGGER.info("📂 Treating as DIP folder: %s", src_path)
                 url = f"{self.logalty_url}/file/download/dip"
 
+            # Build params with origin and metadata
             params = {"origin": src_path}
+            
+            # Add user_id and object_salt to GET params if available
+            if user_id:
+                params["user_id"] = user_id
+            if object_salt:
+                params["object_salt"] = object_salt
+            
             response = requests.get(url, params=params, stream=True, auth=(self.logalty_user, self.logalty_pass))
             response.raise_for_status()
 
@@ -130,7 +158,7 @@ class Logalty(models.Model):
         """
         Upload file or folder from local path to Logalty backend.
         """
-        LOGGER.info("⬆️ [UPLOAD] source: %s ➡ destination: %s | package: %s", source_path, destination_path, package)
+        LOGGER.info("⬆️ [UPLOAD] source: %s ➡ destination: %s", source_path, destination_path)
 
         if os.path.isdir(source_path):
             LOGGER.info("📂 Source is a directory: %s", source_path)
@@ -152,14 +180,25 @@ class Logalty(models.Model):
     def upload_object(self, basename, dest, path, package, isFile=False):
         """Upload an individual file to the appropriate AIP or DIP endpoint."""
         base_url = f"{self.logalty_url}/file"
-        LOGGER.info("📤 Uploading object: %s ➡ %s | package_type: %s", basename, dest, package.package_type)
+        LOGGER.info("📤 Uploading object: %s ➡ %s", basename, dest)
 
         try:
             file_path = path if isFile else os.path.join(path, basename)
             with open(file_path, "rb") as f:
                 file_bytes = f.read()
 
+            # Build payload with destination and metadata
             payload = {"destination": dest}
+            
+            # Add user_id and object_salt from package.misc_attributes if available
+            if package and package.misc_attributes:
+                user_id = package.misc_attributes.get("user_id")
+                object_salt = package.misc_attributes.get("object_salt")
+                
+                if user_id:
+                    payload["user_id"] = user_id
+                if object_salt:
+                    payload["object_salt"] = object_salt
 
             if package.package_type == "DIP":
                 self._post(f"{base_url}/dip", file=file_bytes, json_data=payload)
@@ -173,7 +212,11 @@ class Logalty(models.Model):
     def _post(self, url, file=None, json_data=None, cookies=None):
         """Internal helper for POSTing a file."""
         files = {"file": ("filename", file)} if file else {}
-        data = {"destination": json_data["destination"]} if json_data else {}
+        
+        # Build data dict with all fields from json_data
+        data = {}
+        if json_data:
+            data.update(json_data)  # Include all fields: destination, user_id, object_salt, etc.
 
         return requests.post(
             url,

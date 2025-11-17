@@ -1096,9 +1096,33 @@ class PackageResource(ModelResource):
                 format=request.headers.get("content-type", "application/json"),
             )
             deserialized = self.alter_deserialized_detail_data(request, deserialized)
+            
+            # Store user_id and object_salt from CORE in misc_attributes
+            user_id = deserialized.get("user_id")
+            object_salt = deserialized.get("object_salt")
+            
+            LOGGER.info("🔍 [DEBUG obj_create_async] Received user_id: %s | object_salt: %s", user_id, object_salt)
+            
             bundle = self.build_bundle(data=deserialized, request=request)
 
             bundle = super().obj_create(bundle, **kwargs)
+            
+            # Update misc_attributes immediately after creation
+            if user_id or object_salt:
+                if not bundle.obj.misc_attributes:
+                    bundle.obj.misc_attributes = {}
+                
+                if user_id:
+                    bundle.obj.misc_attributes["user_id"] = user_id
+                if object_salt:
+                    bundle.obj.misc_attributes["object_salt"] = object_salt
+                
+                LOGGER.info("🔍 [DEBUG obj_create_async] bundle.obj.misc_attributes AFTER update: %s", bundle.obj.misc_attributes)
+                
+                # Save BEFORE calling _store_bundle
+                bundle.obj.save()
+                
+                LOGGER.info("🔍 [DEBUG obj_create_async] bundle.obj.misc_attributes AFTER save: %s", bundle.obj.misc_attributes)
 
             def task():
                 self._store_bundle(bundle)
@@ -1130,7 +1154,38 @@ class PackageResource(ModelResource):
         Create a new Package model instance. Called when a POST request is
         made to api/v2/file/.
         """
+        # DEBUG: Log complete bundle.data to see what's being received
+        LOGGER.info("🔍 [DEBUG obj_create] Complete bundle.data: %s", bundle.data)
+        
+        # Store user_id and object_salt from CORE in misc_attributes BEFORE creating
+        user_id = bundle.data.get("user_id")
+        object_salt = bundle.data.get("object_salt")
+        
+        LOGGER.info("🔍 [DEBUG obj_create] Received user_id: %s | object_salt: %s", user_id, object_salt)
+        
         bundle = super().obj_create(bundle, **kwargs)
+        
+        LOGGER.info("🔍 [DEBUG obj_create] After super().obj_create, bundle.obj: %s", bundle.obj)
+        LOGGER.info("🔍 [DEBUG obj_create] bundle.obj.misc_attributes BEFORE update: %s", bundle.obj.misc_attributes)
+        
+        # Update misc_attributes immediately after creation
+        if user_id or object_salt:
+            if not bundle.obj.misc_attributes:
+                bundle.obj.misc_attributes = {}
+            
+            if user_id:
+                bundle.obj.misc_attributes["user_id"] = user_id
+            if object_salt:
+                bundle.obj.misc_attributes["object_salt"] = object_salt
+            
+            LOGGER.info("🔍 [DEBUG obj_create] bundle.obj.misc_attributes AFTER update: %s", bundle.obj.misc_attributes)
+            
+            # Save BEFORE calling _store_bundle
+            bundle.obj.save()
+            
+            LOGGER.info("🔍 [DEBUG obj_create] bundle.obj.misc_attributes AFTER save: %s", bundle.obj.misc_attributes)
+        
+        # Now when _store_bundle calls Logalty, the data is already in the DB
         self._store_bundle(bundle)
         return bundle
 

@@ -172,7 +172,7 @@ class Package(models.Model):
         help_text=_("For storing flexible, often Space-specific, attributes"),
     )
 
-    PACKAGE_TYPE_CAN_DELETE = (AIP,DIP, AIC, TRANSFER)
+    PACKAGE_TYPE_CAN_DELETE = (AIP, DIP, AIC, TRANSFER)
     PACKAGE_TYPE_CAN_DELETE_DIRECTLY = (DIP,)
     PACKAGE_TYPE_CAN_EXTRACT = (AIP, AIC)
     PACKAGE_TYPE_CAN_RECOVER = (AIP, AIC)
@@ -1322,7 +1322,7 @@ class Package(models.Model):
         new_premis_data = (
             "object",
             new_premis_meta,
-            old_premis_object.find("object_identifier"),
+            old_premis_object.find("object_salt"),
             old_premis_object.find("object_characteristics"),
         ) + tuple(new_relationships)
         new_premis_object = premisrw.PREMISObject(data=new_premis_data)
