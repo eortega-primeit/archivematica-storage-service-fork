@@ -1672,7 +1672,22 @@ class PackageResource(ModelResource):
         reingest_type = bundle.data["reingest_type"]
         processing_config = bundle.data.get("processing_config", "default")
 
-        response = bundle.obj.start_reingest(pipeline, reingest_type, processing_config)
+        reingest_ipds_represervation = bundle.data["ipds-re-preservation"]
+        reingest_ipds_doc_name = bundle.data.get("ipds-doc-name", "").strip()
+        LOGGER.info(
+            "🔍  Received reingest_ipds_represervation: %s , SKIPPING FIXITY IF TRUE", reingest_ipds_represervation
+        )
+        LOGGER.info(
+            "🔍  Received reingest_ipds_doc_name: %s", reingest_ipds_doc_name or "(all files)"
+        )
+
+        response = bundle.obj.start_reingest(
+            pipeline,
+            reingest_type,
+            processing_config,
+            reingest_ipds_represervation,
+            reingest_ipds_doc_name,
+        )
         status_code = response.get("status_code", 500)
 
         bundle.obj.clear_local_tempdirs()

@@ -2194,7 +2194,7 @@ class Package(models.Model):
 
     # REINGEST
 
-    def start_reingest(self, pipeline, reingest_type, processing_config="default"):
+    def start_reingest(self, pipeline, reingest_type, processing_config="default", reingest_ipds_represervation="false", reingest_ipds_doc_name=""):
         """
         Copies this package to `pipeline` for reingest.
 
@@ -2204,6 +2204,7 @@ class Package(models.Model):
         If reingest_type is FULL, we do like in OBJECTS but sending the package to the transfer source location.
         Calls Archivematica endpoint /api/ingest/reingest/ to start reingest.
 
+        :param reingest_ipds_represervation:
         :param pipeline: Pipeline object to send reingested AIP to.
         :param reingest_type: Type of reingest to start, one of REINGEST_CHOICES.
         :return: Dict with keys 'error', 'status_code' and 'message'
@@ -2229,14 +2230,36 @@ class Package(models.Model):
                 % {"pipeline": self.misc_attributes["reingest_pipeline"]},
             }
         self.misc_attributes.update({"reingest_pipeline": str(pipeline.uuid)})
+        # Persist ipds-re-preservation in the Package's misc_attributes so that
+        # _validate_pipelines_for_reingest can detect it even when misc_attributes
+        # is later overwritten externally with only {'ipds-re-preservation': True}.
+        if reingest_ipds_represervation.lower() not in ("false", "0", "no", ""):
+            self.misc_attributes.update({"ipds-re-preservation": True})
+            LOGGER.info(
+                "[ipds-re-preservation] Persisted flag in Package misc_attributes for package=%s",
+                self.uuid,
+            )
+        if reingest_ipds_doc_name:
+            self.misc_attributes.update({"ipds-doc-name": reingest_ipds_doc_name})
+            LOGGER.info(
+                "[ipds-doc-name] Persisted doc name in Package misc_attributes for package=%s, doc=%s",
+                self.uuid,
+                reingest_ipds_doc_name,
+            )
+        # Persist reingest_pipeline (and ipds flag if set) immediately so that
+        # finish_reingest can validate it even if the object is reloaded from DB
+        # by a concurrent request before start_reingest completes.
+        self.save()
 
         # Run fixity
         # Fixity will fetch & extract package if needed
-        success, ___, error_msg, ___ = self.check_fixity(delete_after=False)
-        LOGGER.debug("Reingest: Fixity response: %s, %s", success, error_msg)
-        if not success:
-            return {"error": True, "status_code": 500, "message": error_msg}
-
+        if reingest_ipds_represervation.lower() == "false":
+            success, ___, error_msg, ___ = self.check_fixity(delete_after=False)
+            LOGGER.info("🔍 Reingest: Fixity response: %s, %s", success, error_msg)
+            if not success:
+                return {"error": True, "status_code": 500, "message": error_msg}
+        else:
+            LOGGER.info("🔍 Reingest: Skipping fixity check as reingest_ipds_represervation is set to true")
         # Fetch and extract if needed
         if self.is_compressed:
             local_path, temp_dir = self.extract_file()
@@ -2330,7 +2353,7 @@ class Package(models.Model):
                 )
                 % {"uuid": pipeline.uuid},
             }
-        LOGGER.debug("Reingest: Current location: %s", current_location)
+        LOGGER.info("Reingest: Current location: %s", current_location)
         dest_basepath = os.path.join(currently_processing.relative_path, "tmp", "")
         for path in reingest_files:
             current_location.space.move_to_storage_service(
@@ -2356,8 +2379,17 @@ class Package(models.Model):
         # Call reingest API
         reingest_target = "transfer" if reingest_type == self.FULL else "ingest"
         reingest_uuid = self.uuid
+        ipds_flag = reingest_ipds_represervation.lower() not in ("false", "0", "no", "")
+        LOGGER.info(
+            "[ipds-re-preservation] start_reingest: package=%s, reingest_type=%s, target=%s, ipds_flag=%s, ipds_doc_name=%s",
+            self.uuid,
+            reingest_type,
+            reingest_target,
+            ipds_flag,
+            reingest_ipds_doc_name or "(all files)",
+        )
         try:
-            resp = pipeline.reingest(relative_path, self.uuid, reingest_target)
+            resp = pipeline.reingest(relative_path, self.uuid, reingest_target, ipds_re_preservation=ipds_flag, ipds_doc_name=reingest_ipds_doc_name)
         except requests.exceptions.RequestException as e:
             message = _("Error in approve reingest API. %(error)s") % {"error": e}
             LOGGER.exception(
@@ -2438,14 +2470,17 @@ class Package(models.Model):
             purpose=Location.STORAGE_SERVICE_INTERNAL
         )
         internal_space = internal_location.space
+
         # Take note of whether the (soon-to-be) old (i.e., current) version of
         # this AIP was compressed.
         was_compressed = self.is_compressed
+        LOGGER.info("finish_reingest: was_compressed=%s for package %s", was_compressed, self.uuid)
         # Copy the current AIP to the Storage Service's internal location,
         # extracting it if needed. We keep track of ``extract_path_to_delete``
         # so we can delete it later. Note: ``old_aip_internal_path`` points to
         # a copy of this package in a SS-internal location.
         old_aip_internal_path, extract_path_to_delete = self.extract_file()
+        LOGGER.info("finish_reingest: extracted old AIP to %s (tmp %s)", old_aip_internal_path, extract_path_to_delete)
 
         # 1. Fetch (and extract) the reingested AIP (and its pointer file) from
         #    the origin_location and put them in the internal processing
@@ -2459,9 +2494,9 @@ class Package(models.Model):
             internal_location,
             reingest_path,
         )
-
+        LOGGER.info("finish_reingest: moved reingested AIP to internal path %s", rein_aip_internal_path)
         # Take note of whether the new version of the AIP should be compressed.
-        to_be_compressed = rein_aip_is_compressed = os.path.isfile(
+        rein_aip_is_compressed = os.path.isfile(
             rein_aip_internal_path
         )
 
@@ -2470,13 +2505,14 @@ class Package(models.Model):
             rein_aip_internal_path = _extract_rein_aip(
                 internal_location, rein_aip_internal_path
             )
+            LOGGER.info("finish_reingest: reingested AIP extracted to %s", rein_aip_internal_path)
 
         # Copy the pointer file, if it exists, from the origin location (e.g.,
         # currently processing) to the internal location.
         # ``rein_pointer_dst_full_path`` is the full path to the pointer file
         # in the internal location, or ``None`` if no pointer file is needed.
         rein_pointer_dst_full_path = None
-        if self.package_type in (Package.AIP, Package.AIC) and to_be_compressed:
+        if self.package_type in (Package.AIP, Package.AIC) and rein_aip_is_compressed:
             (
                 reingest_pointer_name,
                 reingest_pointer_src,
@@ -2501,12 +2537,15 @@ class Package(models.Model):
 
         # 2. Replace the old AIP's METS file with the reingested AIP's mets
         #    file.
+        LOGGER.info("finish_reingest: overwriting old METS with reingested METS")
         self._overwrite_old_mets_with_rein_mets(
             rein_aip_internal_path, old_aip_internal_path
         )
+        LOGGER.info("finish_reingest: METS overwrite complete")
 
         # 3. Copy the reingested AIP's metadata/ directory over the old AIP's
         #    metadata' directory.
+        LOGGER.info("finish_reingest: replacing metadata directory")
         _replace_old_metdata_with_reingested(
             rein_aip_internal_path, old_aip_internal_path
         )
@@ -2516,16 +2555,18 @@ class Package(models.Model):
         #    ``removed_pres_der_paths`` is a list of paths (in the old AIP) of
         #    preservation derivatives that were deleted because they were made
         #    out-of-date by new derivatives in the newly re-ingested AIP.
+        LOGGER.info("finish_reingest: replacing preservation derivatives")
         removed_pres_der_paths = _replace_old_pres_ders_with_reingested(
             rein_aip_internal_path, old_aip_internal_path
         )
 
         # 5. Create a new bag from the AIP at ``old_aip_internal_path`` and
         #    validate it.
+        LOGGER.info("finish_reingest: updating bag payload and verifying at %s", old_aip_internal_path)
         _update_bag_payload_and_verify(old_aip_internal_path)
 
         compression = None
-        if to_be_compressed:
+        if rein_aip_is_compressed:
             if os.path.isfile(rein_pointer_dst_full_path):
                 compression = utils.get_compression(rein_pointer_dst_full_path)
                 # If updating, rather than creating a new pointer file, delete
@@ -2574,7 +2615,7 @@ class Package(models.Model):
             updated_aip_path,
             updated_aip_parent_path,
         ) = self._compress_and_clean_for_reingest(
-            to_be_compressed,
+            rein_aip_is_compressed,
             was_compressed,
             compression,
             rein_aip_internal_path,
@@ -2583,6 +2624,7 @@ class Package(models.Model):
         self.size = utils.recalculate_size(updated_aip_path)
 
         # 7. Generate checksum.
+        LOGGER.info("finish_reingest: generating new checksums at %s", updated_aip_path)
         checksum = utils.generate_checksum(
             updated_aip_path, Package.DEFAULT_CHECKSUM_ALGORITHM
         ).hexdigest()
@@ -2590,9 +2632,10 @@ class Package(models.Model):
         self.checksum_algorithm = Package.DEFAULT_CHECKSUM_ALGORITHM
 
         # 8. Create a pointer file if AM has not done so.
+        LOGGER.info("finish_reingest: Create a pointer file if AM has not done so")
         if (
             self.package_type in (Package.AIP, Package.AIC)
-            and to_be_compressed
+            and rein_aip_is_compressed
             and (not os.path.isfile(reingest_pointer_src_full_path))
         ):
             self._create_pointer_file_write_to_disk(
@@ -2604,10 +2647,11 @@ class Package(models.Model):
             )
             self.checksum = checksum
             self.checksum_algorithm = Package.DEFAULT_CHECKSUM_ALGORITHM
-
+            LOGGER.info("finish_reingest: pointer file created and checksum set")
+        LOGGER.info("finish_reingest: moving updated AIP to final destination")
         # 9. Store the AIP in the reingest_location.
         storage_effects = self._move_rein_updated_to_final_dest(
-            to_be_compressed,
+            rein_aip_is_compressed,
             removed_pres_der_paths,
             internal_space,
             internal_location,
@@ -2617,25 +2661,32 @@ class Package(models.Model):
             reingest_location,
             old_aip_internal_path,
         )
+        LOGGER.info("finish_reingest: storage_effects=%s", storage_effects)
         if storage_effects:
             pointer_file = self.get_pointer_instance()
             if pointer_file:
+                LOGGER.info("finish_reingest: creating revised pointer file given storage effects")
                 revised_pointer_file = (
                     self.create_new_pointer_file_given_storage_effects(
                         pointer_file, storage_effects
                     )
                 )
                 write_pointer_file(revised_pointer_file, self.full_pointer_file_path)
+                LOGGER.info("finish_reingest: revised pointer file written to %s", self.full_pointer_file_path)
 
         # 10. Create or update replicas if they need to be made.
+        LOGGER.info("finish_reingest: creating/updating replicas if needed")
         self.create_replicas()
 
         # 11. Update the pointer file.
+        LOGGER.info("finish_reingest: processing pointer file for reingest finalization")
         self._process_pointer_file_for_reingest(
-            to_be_compressed, was_compressed, compression, updated_aip_path
+            rein_aip_is_compressed, was_compressed, compression, updated_aip_path
         )
         self.save()
+        LOGGER.info("finish_reingest: package %s saved; cleaning up working files", self.uuid)
         shutil.rmtree(updated_aip_parent_path)  # Delete working files
+        LOGGER.info("finish_reingest: removed working directory %s", updated_aip_parent_path)
 
     # ==========================================================================
     # Private methods for ``finish_reingest``
@@ -2645,13 +2696,34 @@ class Package(models.Model):
         """Confirm that this package's origin_pipeline matches the
         reingest_pipeline set during ``start_reingest``.
         """
-        if str(self.origin_pipeline.uuid) != self.misc_attributes.get(
-            "reingest_pipeline"
-        ):
+        # When ipds-re-preservation is active, pipeline validation is skipped
+        # because misc_attributes may have been overwritten with only the
+        # ipds-re-preservation flag, losing the reingest_pipeline value.
+        if self.misc_attributes.get("ipds-re-preservation"):
+            LOGGER.info(
+                "Reingest: Skipping pipeline validation because ipds-re-preservation is set."
+            )
+            self.misc_attributes.update({"reingest_pipeline": None})
+            self.save()
+            return
+        reingest_pipeline = self.misc_attributes.get("reingest_pipeline")
+        if reingest_pipeline is None:
+            # misc_attributes was overwritten between start_reingest and
+            # finish_reingest (e.g. by a concurrent obj_update), losing the
+            # reingest_pipeline value. Log a warning and skip validation rather
+            # than raising an exception that blocks the entire reingest.
+            LOGGER.warning(
+                "Reingest: reingest_pipeline is None for package %s — "
+                "misc_attributes may have been overwritten. Skipping pipeline "
+                "validation and proceeding with finish_reingest.",
+                self.uuid,
+            )
+            return
+        if str(self.origin_pipeline.uuid) != reingest_pipeline:
             LOGGER.info(
                 "Reingest: Received pipeline %s did not match expected pipeline %s",
                 self.origin_pipeline.uuid,
-                self.misc_attributes.get("reingest_pipeline"),
+                reingest_pipeline,
             )
             raise Exception(
                 _("%(uuid)s did not match the pipeline this AIP was reingested on.")

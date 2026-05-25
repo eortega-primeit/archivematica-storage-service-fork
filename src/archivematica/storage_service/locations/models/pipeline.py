@@ -211,12 +211,33 @@ class Pipeline(URLMixin, models.Model):
             )
         return resp.text
 
-    def reingest(self, name, uuid, target="transfer"):
+    def reingest(self, name, uuid, target="transfer", ipds_re_preservation=False, ipds_doc_name=""):
         """
         Approve reingest in the pipeline.
         """
         url = f"{target}/reingest"
         fields = {"name": name, "uuid": str(uuid)}
+        if ipds_re_preservation:
+            fields["ipds-re-preservation"] = "true"
+            LOGGER.info(
+                "[ipds-re-preservation] Sending flag to Archivematica pipeline: target=%s, uuid=%s",
+                target,
+                uuid,
+            )
+        else:
+            LOGGER.info(
+                "[ipds-re-preservation] Flag is False — NOT sending to pipeline: target=%s, uuid=%s",
+                target,
+                uuid,
+            )
+        if ipds_doc_name:
+            fields["ipds-doc-name"] = ipds_doc_name
+            LOGGER.info(
+                "[ipds-doc-name] Sending doc name to Archivematica pipeline: target=%s, uuid=%s, doc=%s",
+                target,
+                uuid,
+                ipds_doc_name,
+            )
         resp = self._request_api("POST", url, fields=fields)
         if resp.status_code != requests.codes.ok:
             try:
