@@ -2192,9 +2192,121 @@ class Package(models.Model):
 
         return True, error
 
+    def _replace_old_ipds_target_object_with_reingested(
+            self, rein_aip_internal_path, old_aip_internal_path
+    ):
+        """If this reingest is an IPDS re-preservation and a target filename was
+        provided, replace the corresponding object in the old AIP working copy
+        with the object from the reingested AIP working copy.
+
+        The replacement is done before rebuilding the bag so the final AIP
+        includes the updated binary.
+        """
+        misc = self.misc_attributes or {}
+        ipds_re_preservation = self._is_truthy(misc.get("ipds-re-preservation"))
+        ipds_doc_name = (misc.get("ipds-doc-name") or "").strip()
+
+        if not ipds_re_preservation:
+            LOGGER.info(
+                "finish_reingest: IPDS re-preservation not enabled for package %s; "
+                "skipping target object replacement.",
+                self.uuid,
+            )
+            return
+
+        if not ipds_doc_name:
+            LOGGER.warning(
+                "finish_reingest: ipds-re-preservation is enabled for package %s "
+                "but ipds-doc-name is missing; skipping target object replacement.",
+                self.uuid,
+            )
+            return
+
+        rein_objects_dir = os.path.join(rein_aip_internal_path, "data", "objects")
+        old_objects_dir = os.path.join(old_aip_internal_path, "data", "objects")
+
+        if not os.path.isdir(rein_objects_dir):
+            LOGGER.warning(
+                "finish_reingest: reingested objects directory does not exist: %s",
+                rein_objects_dir,
+            )
+            return
+
+        if not os.path.isdir(old_objects_dir):
+            LOGGER.warning(
+                "finish_reingest: old AIP objects directory does not exist: %s",
+                old_objects_dir,
+            )
+            return
+
+        relative_path = self._find_relative_file_by_basename(rein_objects_dir, ipds_doc_name)
+        if not relative_path:
+            LOGGER.warning(
+                "finish_reingest: could not find IPDS target file %s under %s",
+                ipds_doc_name,
+                rein_objects_dir,
+            )
+            return
+
+        rein_file_path = os.path.join(rein_objects_dir, relative_path)
+        old_file_path = os.path.join(old_objects_dir, relative_path)
+
+        if not os.path.isfile(rein_file_path):
+            LOGGER.warning(
+                "finish_reingest: reingested IPDS target file is not a file: %s",
+                rein_file_path,
+            )
+            return
+
+        os.makedirs(os.path.dirname(old_file_path), exist_ok=True)
+
+        LOGGER.info(
+            "finish_reingest: replacing IPDS target object %s with reingested file %s",
+            old_file_path,
+            rein_file_path,
+        )
+        shutil.copy2(rein_file_path, old_file_path)
+
+        try:
+            new_size = os.path.getsize(old_file_path)
+        except OSError:
+            new_size = "unknown"
+
+        LOGGER.info(
+            "finish_reingest: IPDS target object replacement completed for package %s; "
+            "file=%s size=%s",
+            self.uuid,
+            old_file_path,
+            new_size,
+        )
+    @staticmethod
+    def _is_truthy(value):
+        """Return True for common truthy representations."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            return value.strip().lower() in ("true", "1", "yes", "y", "on")
+        return False
+
+    @staticmethod
+    def _find_relative_file_by_basename(root_dir, basename):
+        """Return the relative path of the first file under root_dir whose basename
+        matches basename. Return None if not found.
+        """
+        if not root_dir or not basename or not os.path.isdir(root_dir):
+            return None
+
+        for dirpath, _, filenames in os.walk(root_dir):
+            for filename in filenames:
+                if filename == basename:
+                    return os.path.relpath(os.path.join(dirpath, filename), root_dir)
+        return None
+
     # REINGEST
 
-    def start_reingest(self, pipeline, reingest_type, processing_config="default", reingest_ipds_represervation="false", reingest_ipds_doc_name=""):
+    def start_reingest(self, pipeline, reingest_type, processing_config="default", reingest_ipds_represervation="false", reingest_ipds_doc_name="", reingest_ipds_doc_id=""):
         """
         Copies this package to `pipeline` for reingest.
 
@@ -2246,6 +2358,15 @@ class Package(models.Model):
                 self.uuid,
                 reingest_ipds_doc_name,
             )
+        if reingest_ipds_doc_id:
+            # Persist ipds-doc-id so downstream processes and validation can access it
+            self.misc_attributes.update({"ipds-doc-id": reingest_ipds_doc_id})
+            LOGGER.info(
+                "[ipds-doc-id] Persisted doc id in Package misc_attributes for package=%s, doc_id=%s",
+                self.uuid,
+                reingest_ipds_doc_id,
+            )
+
         # Persist reingest_pipeline (and ipds flag if set) immediately so that
         # finish_reingest can validate it even if the object is reloaded from DB
         # by a concurrent request before start_reingest completes.
@@ -2389,7 +2510,15 @@ class Package(models.Model):
             reingest_ipds_doc_name or "(all files)",
         )
         try:
-            resp = pipeline.reingest(relative_path, self.uuid, reingest_target, ipds_re_preservation=ipds_flag, ipds_doc_name=reingest_ipds_doc_name)
+            # Pass the optional ipds fields to the pipeline reingest endpoint
+            resp = pipeline.reingest(
+                relative_path,
+                self.uuid,
+                reingest_target,
+                ipds_re_preservation=ipds_flag,
+                ipds_doc_name=reingest_ipds_doc_name,
+                ipds_doc_id=reingest_ipds_doc_id,
+            )
         except requests.exceptions.RequestException as e:
             message = _("Error in approve reingest API. %(error)s") % {"error": e}
             LOGGER.exception(
@@ -2557,6 +2686,13 @@ class Package(models.Model):
         #    out-of-date by new derivatives in the newly re-ingested AIP.
         LOGGER.info("finish_reingest: replacing preservation derivatives")
         removed_pres_der_paths = _replace_old_pres_ders_with_reingested(
+            rein_aip_internal_path, old_aip_internal_path
+        )
+        # 4. If this is an IPDS re-preservation, replace the target object in
+        #    the old AIP working copy with the reingested version before
+        #    rebuilding the bag.
+        LOGGER.info("finish_reingest: replacing IPDS target object if configured")
+        self._replace_old_ipds_target_object_with_reingested(
             rein_aip_internal_path, old_aip_internal_path
         )
 

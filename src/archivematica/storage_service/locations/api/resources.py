@@ -1674,11 +1674,15 @@ class PackageResource(ModelResource):
 
         reingest_ipds_represervation = bundle.data["ipds-re-preservation"]
         reingest_ipds_doc_name = bundle.data.get("ipds-doc-name", "").strip()
+        reingest_ipds_doc_id = bundle.data.get("ipds-doc-id", "").strip()
         LOGGER.info(
             "🔍  Received reingest_ipds_represervation: %s , SKIPPING FIXITY IF TRUE", reingest_ipds_represervation
         )
         LOGGER.info(
             "🔍  Received reingest_ipds_doc_name: %s", reingest_ipds_doc_name or "(all files)"
+        )
+        LOGGER.info(
+            "🔍  Received reingest_ipds_doc_id: %s", reingest_ipds_doc_id or "(none)"
         )
 
         response = bundle.obj.start_reingest(
@@ -1687,6 +1691,7 @@ class PackageResource(ModelResource):
             processing_config,
             reingest_ipds_represervation,
             reingest_ipds_doc_name,
+            reingest_ipds_doc_id,
         )
         status_code = response.get("status_code", 500)
 
@@ -1882,7 +1887,7 @@ class PackageResource(ModelResource):
         The PUT body must be a list of zero or more JavaScript objects in the following format:
         {
             "relative_path": "string",
-            "fileuuid": "string",
+            "fileuuid": "source_id",
             "accessionid", "string",
             "sipuuid": "string",
             "origin": "string"
@@ -1933,7 +1938,7 @@ class PackageResource(ModelResource):
                         % {"key": source},
                     }
                     return http.HttpBadRequest(
-                        json.dumps(response), content_type="application_json"
+                        json.dumps(response), content_type="application/json"
                     )
 
             created_files.append(File(**kwargs))
