@@ -29,7 +29,7 @@ def validate_space_path(path):
 
 
 # To add a new storage space the following places must be updated:
-#  locations/models/space.py (this file)
+#  locations/models/space.py (this file.)
 #   Add constant for storage protocol
 #   Add constant to ACCESS_PROTOCOL_CHOICES
 #  locations/models/<spacename>.py
@@ -111,6 +111,7 @@ class Space(models.Model):
     SWIFT = "SWIFT"
     GPG = "GPG"
     S3 = "S3"
+    LOGALTY = "LOGALTY"
     # These will not be displayed in the Space Create GUI (see locations/forms.py)
     BETA_PROTOCOLS: set[str] = set()
     OBJECT_STORAGE = {
@@ -122,6 +123,7 @@ class Space(models.Model):
         RCLONE,
         SWIFT,
         S3,
+        LOGALTY,
     }
     ACCESS_PROTOCOL_CHOICES = (
         (ARCHIPELAGO, _("Archipelago")),
@@ -140,6 +142,7 @@ class Space(models.Model):
         (RCLONE, _("RClone")),
         (SWIFT, _("Swift")),
         (S3, _("S3")),
+        (LOGALTY, _("Logalty Storage Module via REST API")),
     )
     access_protocol = models.CharField(
         max_length=8,

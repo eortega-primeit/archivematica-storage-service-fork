@@ -1096,9 +1096,33 @@ class PackageResource(ModelResource):
                 format=request.headers.get("content-type", "application/json"),
             )
             deserialized = self.alter_deserialized_detail_data(request, deserialized)
+            
+            # Store user_id and object_salt from CORE in misc_attributes
+            user_id = deserialized.get("user_id")
+            object_salt = deserialized.get("object_salt")
+            
+            LOGGER.info("🔍 [DEBUG obj_create_async] Received user_id: %s | object_salt: %s", user_id, object_salt)
+            
             bundle = self.build_bundle(data=deserialized, request=request)
 
             bundle = super().obj_create(bundle, **kwargs)
+            
+            # Update misc_attributes immediately after creation
+            if user_id or object_salt:
+                if not bundle.obj.misc_attributes:
+                    bundle.obj.misc_attributes = {}
+                
+                if user_id:
+                    bundle.obj.misc_attributes["user_id"] = user_id
+                if object_salt:
+                    bundle.obj.misc_attributes["object_salt"] = object_salt
+                
+                LOGGER.info("🔍 [DEBUG obj_create_async] bundle.obj.misc_attributes AFTER update: %s", bundle.obj.misc_attributes)
+                
+                # Save BEFORE calling _store_bundle
+                bundle.obj.save()
+                
+                LOGGER.info("🔍 [DEBUG obj_create_async] bundle.obj.misc_attributes AFTER save: %s", bundle.obj.misc_attributes)
 
             def task():
                 self._store_bundle(bundle)
@@ -1130,7 +1154,38 @@ class PackageResource(ModelResource):
         Create a new Package model instance. Called when a POST request is
         made to api/v2/file/.
         """
+        # DEBUG: Log complete bundle.data to see what's being received
+        LOGGER.info("🔍 [DEBUG obj_create] Complete bundle.data: %s", bundle.data)
+        
+        # Store user_id and object_salt from CORE in misc_attributes BEFORE creating
+        user_id = bundle.data.get("user_id")
+        object_salt = bundle.data.get("object_salt")
+        
+        LOGGER.info("🔍 [DEBUG obj_create] Received user_id: %s | object_salt: %s", user_id, object_salt)
+        
         bundle = super().obj_create(bundle, **kwargs)
+        
+        LOGGER.info("🔍 [DEBUG obj_create] After super().obj_create, bundle.obj: %s", bundle.obj)
+        LOGGER.info("🔍 [DEBUG obj_create] bundle.obj.misc_attributes BEFORE update: %s", bundle.obj.misc_attributes)
+        
+        # Update misc_attributes immediately after creation
+        if user_id or object_salt:
+            if not bundle.obj.misc_attributes:
+                bundle.obj.misc_attributes = {}
+            
+            if user_id:
+                bundle.obj.misc_attributes["user_id"] = user_id
+            if object_salt:
+                bundle.obj.misc_attributes["object_salt"] = object_salt
+            
+            LOGGER.info("🔍 [DEBUG obj_create] bundle.obj.misc_attributes AFTER update: %s", bundle.obj.misc_attributes)
+            
+            # Save BEFORE calling _store_bundle
+            bundle.obj.save()
+            
+            LOGGER.info("🔍 [DEBUG obj_create] bundle.obj.misc_attributes AFTER save: %s", bundle.obj.misc_attributes)
+        
+        # Now when _store_bundle calls Logalty, the data is already in the DB
         self._store_bundle(bundle)
         return bundle
 
@@ -1617,7 +1672,27 @@ class PackageResource(ModelResource):
         reingest_type = bundle.data["reingest_type"]
         processing_config = bundle.data.get("processing_config", "default")
 
-        response = bundle.obj.start_reingest(pipeline, reingest_type, processing_config)
+        reingest_ipds_represervation = bundle.data["ipds-re-preservation"]
+        reingest_ipds_doc_name = bundle.data.get("ipds-doc-name", "").strip()
+        reingest_ipds_doc_id = bundle.data.get("ipds-doc-id", "").strip()
+        LOGGER.info(
+            "🔍  Received reingest_ipds_represervation: %s , SKIPPING FIXITY IF TRUE", reingest_ipds_represervation
+        )
+        LOGGER.info(
+            "🔍  Received reingest_ipds_doc_name: %s", reingest_ipds_doc_name or "(all files)"
+        )
+        LOGGER.info(
+            "🔍  Received reingest_ipds_doc_id: %s", reingest_ipds_doc_id or "(none)"
+        )
+
+        response = bundle.obj.start_reingest(
+            pipeline,
+            reingest_type,
+            processing_config,
+            reingest_ipds_represervation,
+            reingest_ipds_doc_name,
+            reingest_ipds_doc_id,
+        )
         status_code = response.get("status_code", 500)
 
         bundle.obj.clear_local_tempdirs()
@@ -1757,57 +1832,34 @@ class PackageResource(ModelResource):
         return sword_views.deposit_state(request, package or kwargs["uuid"])
 
     def _attempt_package_request_event(
-        self, package, request_info, event_type, event_status
+            self, package, request_info, event_type, event_status
     ):
-        """Generic package request handler, e.g. package recovery: RECOVER_REQ,
-        or package deletion: DEL_REQ.
-        """
-        LOGGER.info(
-            f"Package event: '{event_type}' requested, with package status: '{event_status}'"
-        )
-        LOGGER.debug(pprint.pformat(request_info))
-
+        """Aprobar automáticamente la solicitud de eliminación."""
         pipeline = Pipeline.objects.get(uuid=request_info["pipeline"])
         request_description = event_type.replace("_", " ").lower()
 
-        # See if an event already exists
-        existing_requests = Event.objects.filter(
-            package=package, event_type=event_type, status=Event.SUBMITTED
-        ).count()
-        if existing_requests < 1:
-            request_event = Event(
-                package=package,
-                event_type=event_type,
-                status=Event.SUBMITTED,
-                event_reason=request_info["event_reason"],
-                pipeline=pipeline,
-                user_id=request_info["user_id"],
-                user_email=request_info["user_email"],
-                store_data=package.status,
-            )
+        # Crear el evento de eliminación directamente
+        request_event = Event(
+            package=package,
+            event_type=event_type,
+            status=Event.APPROVED,
+            event_reason=request_info["event_reason"],
+            pipeline=pipeline,
+            user_id=request_info["user_id"],
+            user_email=request_info["user_email"],
+            store_data=package.status,
+        )
+        package.status = Package.DELETED
+        package.save()
+        package.delete_from_storage()
 
-            # Update package status
-            package.status = event_status
-            package.save()
+        request_event.save()
+        response = {
+            "message": _("La solicitud de eliminación fue aprobada automáticamente.")
+        }
+        status_code = 202
 
-            request_event.save()
-            response = {
-                "message": _("%(event_type)s request created successfully.")
-                % {"event_type": request_description.title()},
-                "id": request_event.id,
-            }
-
-            status_code = 202
-        else:
-            response = {
-                "error_message": _(
-                    "A %(event_type)s request already exists for this AIP."
-                )
-                % {"event_type": request_description}
-            }
-            status_code = 200
-
-        return (status_code, response)
+        return status_code, response
 
     @_custom_endpoint(expected_methods=["get", "put", "delete"])
     def manage_contents(self, request, bundle, **kwargs):
@@ -1835,7 +1887,7 @@ class PackageResource(ModelResource):
         The PUT body must be a list of zero or more JavaScript objects in the following format:
         {
             "relative_path": "string",
-            "fileuuid": "string",
+            "fileuuid": "source_id",
             "accessionid", "string",
             "sipuuid": "string",
             "origin": "string"
@@ -1886,7 +1938,7 @@ class PackageResource(ModelResource):
                         % {"key": source},
                     }
                     return http.HttpBadRequest(
-                        json.dumps(response), content_type="application_json"
+                        json.dumps(response), content_type="application/json"
                     )
 
             created_files.append(File(**kwargs))

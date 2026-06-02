@@ -5,7 +5,7 @@ By [Artefactual]
 [![GitHub CI]][Test workflow]
 [![codecov]][Archivematica Storage Service Codecov]
 
-The Archivematica Storage Service is part of the Archivematica project.
+LOGALTY: The Archivematica Storage Service is part of the Archivematica project.
 Archivematica is a web- and standards-based, open-source application which
 allows your institution to preserve long-term access to trustworthy, authentic
 and reliable digital content. Our target users are archivists, librarians, and

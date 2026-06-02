@@ -121,4 +121,13 @@ PROTOCOL = {
             "bucket",
         ],
     },
+    models.Space.LOGALTY: {
+        "model": models.Logalty,
+        "form": forms.LogaltyForm,
+        "fields": [
+            "logalty_url",
+            "logalty_user",
+            "logalty_pass",
+        ],
+    },
 }
