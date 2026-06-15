@@ -24,15 +24,15 @@ class LogaltyRESTException(Exception):
 class Logalty(models.Model):
     space = models.OneToOneField("Space", to_field="uuid", on_delete=models.CASCADE)
 
-    logalty_user = models.CharField(max_length=64, blank=True)
-    logalty_pass = models.CharField(max_length=256, blank=True)
-    logalty_url = models.CharField(max_length=2048)
+    logalty_user = models.CharField(max_length=64, blank=True,verbose_name="The username for Logalty Storage Service")
+    logalty_pass = models.CharField(max_length=256, blank=True,verbose_name="The password for Logalty Storage Service")
+    logalty_url = models.CharField(max_length=2048,verbose_name="The url for Logalty Storage Service")
 
-    s3_access_key_id = models.CharField(max_length=64, blank=True)
-    s3_secret_access_key = models.CharField(max_length=256, blank=True)
-    s3_endpoint_url = models.CharField(max_length=2048)
-    s3_region = models.CharField(max_length=64)
-    s3_bucket = models.CharField(max_length=64, blank=True)
+    s3_access_key_id = models.CharField(max_length=64, blank=True,verbose_name="The user for AWS S3 on which upload the files before encryption")
+    s3_secret_access_key = models.CharField(max_length=256, blank=True,verbose_name="The user for AWS S3 on which upload the files before encryption")
+    s3_endpoint_url = models.CharField(max_length=2048,verbose_name="The user for AWS S3 on which upload the files before encryption")
+    s3_region = models.CharField(max_length=64,verbose_name="The region for AWS S3 on which upload the files before encryption")
+    s3_bucket = models.CharField(max_length=64, blank=True,verbose_name="The user for AWS S3 on which upload the files before encryption")
 
     class Meta:
         app_label = "locations"
