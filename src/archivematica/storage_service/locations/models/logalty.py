@@ -4,12 +4,21 @@ import traceback
 import requests
 import boto3
 import botocore
+import io
+import re
+import py7zr
 
 from django.db import models
 from .location import Location
+from django.utils.translation import gettext_lazy as _
 
 LOGGER = logging.getLogger(__name__)
-
+# Global constants
+LOGGER = logging.getLogger(__name__)
+HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
+DS_SCHEME = "https"
+DFLT_AS_PORT = 8089
+DFLT_DS_PORT = 443
 
 class LogaltyRESTException(Exception):
     def __init__(self, msg, url=None, exc_info=False):
