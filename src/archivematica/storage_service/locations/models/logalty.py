@@ -213,3 +213,78 @@ class Logalty(models.Model):
 
         else:
             raise ValueError("Invalid source path")
+
+    def move_to_storage_service(self, src_path, dest_path, dest_space):
+        """
+        Downloads AIP or DIP from Spring Boot API via GET.
+        - AIP files (.7z, .zip, etc.) are saved directly as compressed files.
+        - DIP folders are downloaded as 7z archives and extracted.
+        """
+        # Extract package UUID from src_path to query database for user_id and object_salt
+        # Pattern: /5178/fb1b/f2ca/429c/94c9/1ed6/7c13/6830/... -> 5178fb1b-f2ca-429c-94c9-1ed67c136830
+        package_uuid = None
+        user_id = None
+        object_salt = None
+
+        uuid_pattern = r'/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/([0-9a-f]{4})/'
+        match = re.search(uuid_pattern, src_path)
+        if match:
+            package_uuid = '-'.join(match.groups())
+            try:
+                from .package import Package
+                package = Package.objects.get(uuid=package_uuid)
+                if package.misc_attributes:
+                    user_id = package.misc_attributes.get("user_id")
+                    object_salt = package.misc_attributes.get("object_salt")
+            except Exception as e:
+                LOGGER.warning("Could not retrieve package metadata: %s", e)
+
+        LOGGER.info("⬇️ [DOWNLOAD] AIP/DIP from src: %s ➡ dest: %s", src_path, dest_path)
+
+        try:
+            # Determine if it's an AIP (compressed file) or DIP (folder to extract)
+            is_compressed_aip = src_path.endswith((".7z", ".zip", ".rar", ".tar.gz", ".tar", ".gz", ".pbzip2"))
+
+            if is_compressed_aip:
+                LOGGER.info("📦 Treating as AIP file: %s", src_path)
+                url = f"{self.logalty_url}/file/download/aip"
+            else:
+                LOGGER.info("📂 Treating as DIP folder: %s", src_path)
+                url = f"{self.logalty_url}/file/download/dip"
+
+            # Build params with origin and metadata
+            params = {"origin": src_path}
+
+            # Add user_id and object_salt to GET params if available
+            if user_id:
+                params["user_id"] = user_id
+            if object_salt:
+                params["object_salt"] = object_salt
+
+            response = requests.get(url, params=params, stream=True, auth=(self.logalty_user, self.logalty_pass))
+            response.raise_for_status()
+
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+            if is_compressed_aip:
+                # Save AIP as a file without decompressing
+                with open(dest_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                LOGGER.info("✅ AIP saved to %s", dest_path)
+            else:
+                # DIP comes as a 7z archive and needs to be extracted
+                with py7zr.SevenZipFile(io.BytesIO(response.content), mode='r') as archive:
+                    os.makedirs(dest_path, exist_ok=True)
+                    archive.extractall(path=dest_path)
+                LOGGER.info("✅ DIP extracted to %s", dest_path)
+
+        except requests.RequestException as e:
+            LOGGER.error("❌ HTTP request failed: %s", e)
+            raise LogaltyRESTException(f"Error downloading file via GET: {e}")
+        except py7zr.Bad7zFile as e:
+            LOGGER.error("❌ Failed to extract 7z content: %s", e)
+            raise LogaltyRESTException(f"Error extracting downloaded 7z file: {e}")
+        except Exception as e:
+            LOGGER.error("❌ Unexpected error: %s", e)
+            raise LogaltyRESTException(f"Error in move_to_storage_service: {e}")
