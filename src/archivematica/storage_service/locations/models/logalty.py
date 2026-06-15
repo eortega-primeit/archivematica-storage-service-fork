@@ -72,6 +72,11 @@ class Logalty(models.Model):
     def bucket(self):
         return self.s3.Bucket(self.s3_bucket)
 
+    def browse(self, path):
+        """Browse a path in the storage."""
+        LOGGER.info("📁 [BROWSE] Path: %s", path)
+        pass
+
     def _ensure_bucket_exists(self):
         try:
             self.s3.meta.client.head_bucket(Bucket=self.s3_bucket)
