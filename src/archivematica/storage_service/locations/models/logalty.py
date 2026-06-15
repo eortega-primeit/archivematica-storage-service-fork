@@ -7,6 +7,7 @@ import botocore
 import io
 import re
 import py7zr
+import tempfile
 
 from django.db import models
 from .location import Location
@@ -120,9 +121,9 @@ class Logalty(models.Model):
             object_salt = package.misc_attributes.get("object_salt")
 
             if user_id:
-                meta["user_id"] = str(user_id)
+                meta["user_id"] = user_id
             if object_salt:
-                meta["object_salt"] = str(object_salt)
+                meta["object_salt"] = object_salt
 
         extra_args = {"Metadata": meta} if meta else {}
 
@@ -189,39 +190,175 @@ class Logalty(models.Model):
             raise RuntimeError(f"Encryption API failed: {e}")
 
     # -----------------------
-    # ENTRYPOINT
+    # ENTRYPOINT UPLOAD FILE OR DIRECTORY
     # -----------------------
     def move_from_storage_service(self, source_path, destination_path, package=None):
+        """
+        Upload workflow:
 
-        is_dip = package and getattr(package, "package_type", None) == "DIP"
+        AIP:
+            - If Archivematica already produced a .7z AIP -> upload it directly.
+            - Otherwise compress into .7z first.
 
-        if os.path.isdir(source_path):
-            base = source_path.rstrip("/") + "/"
-            dest = destination_path.rstrip("/") + "/"
+        DIP:
+            - Always compress the whole directory/file into a single .7z archive.
+            - Upload only one archive.
+            - Trigger Spring Boot encryption only after successful upload.
 
-            for root, _, files in os.walk(base):
-                for name in files:
-                    full = os.path.join(root, name)
-                    s3_key = full.replace(base, dest)
+        Rollback:
+            - If Spring Boot encryption fails, _upload_then_encrypt()
+              removes the uploaded S3 object automatically.
+        """
 
-                    self._upload_then_encrypt(
-                        full,
-                        s3_key,
-                        package=package,
-                        is_dip=is_dip,
+        package_type = getattr(package, "package_type", None)
+        is_dip = package_type == "DIP"
+
+        LOGGER.info(
+            "⬆️ Upload requested source=%s destination=%s package_type=%s",
+            source_path,
+            destination_path,
+            package_type,
+        )
+
+        archive_path = None
+
+        try:
+
+            # --------------------------------------------------
+            # AIP already generated as .7z by Archivematica
+            # --------------------------------------------------
+            if (
+                    not is_dip
+                    and os.path.isfile(source_path)
+                    and source_path.lower().endswith(".7z")
+            ):
+
+                LOGGER.info(
+                    "📦 AIP already packaged as 7z, uploading directly: %s",
+                    source_path,
+                )
+
+                archive_path = source_path
+
+            # --------------------------------------------------
+            # DIRECTORY -> CREATE SINGLE 7Z
+            # --------------------------------------------------
+            elif os.path.isdir(source_path):
+
+                archive_name = (
+                        os.path.basename(source_path.rstrip(os.sep))
+                        + ".7z"
+                )
+
+                archive_path = os.path.join(
+                    tempfile.gettempdir(),
+                    archive_name,
+                )
+
+                LOGGER.info(
+                    "📦 Compressing directory %s -> %s",
+                    source_path,
+                    archive_path,
+                )
+
+                with py7zr.SevenZipFile(
+                        archive_path,
+                        mode="w",
+                ) as archive:
+                    archive.writeall(
+                        source_path,
+                        arcname=os.path.basename(source_path),
                     )
 
-        elif os.path.isfile(source_path):
+            # --------------------------------------------------
+            # FILE -> CREATE SINGLE 7Z
+            # --------------------------------------------------
+            elif os.path.isfile(source_path):
+
+                base_name = os.path.basename(source_path)
+
+                archive_name = base_name + ".7z"
+
+                archive_path = os.path.join(
+                    tempfile.gettempdir(),
+                    archive_name,
+                )
+
+                LOGGER.info(
+                    "📦 Compressing file %s -> %s",
+                    source_path,
+                    archive_path,
+                )
+
+                with py7zr.SevenZipFile(
+                        archive_path,
+                        mode="w",
+                ) as archive:
+                    archive.write(
+                        source_path,
+                        arcname=base_name,
+                    )
+
+            else:
+                raise ValueError(
+                    f"Invalid source path: {source_path}"
+                )
+
+            LOGGER.info(
+                "✅ Archive ready: %s (%s bytes)",
+                archive_path,
+                os.path.getsize(archive_path),
+            )
+
+            # --------------------------------------------------
+            # BUILD FINAL S3 KEY
+            # --------------------------------------------------
+            archive_filename = os.path.basename(archive_path)
+
+            destination_path = destination_path.rstrip("/")
+
+            s3_key = (
+                f"{destination_path}/{archive_filename}"
+            )
+
+            LOGGER.info(
+                "☁️ Uploading archive to S3 key: %s",
+                s3_key,
+            )
 
             self._upload_then_encrypt(
-                source_path,
-                destination_path,
+                archive_path,
+                s3_key,
                 package=package,
                 is_dip=is_dip,
             )
 
-        else:
-            raise ValueError("Invalid source path")
+            LOGGER.info(
+                "✅ Upload and encryption completed successfully"
+            )
+
+        finally:
+
+            # remove temporary archives only
+            if (
+                    archive_path
+                    and archive_path != source_path
+                    and os.path.exists(archive_path)
+            ):
+                try:
+                    os.remove(archive_path)
+
+                    LOGGER.info(
+                        "🧹 Removed temporary archive %s",
+                        archive_path,
+                    )
+
+                except Exception as e:
+                    LOGGER.warning(
+                        "⚠️ Failed removing temporary archive %s: %s",
+                        archive_path,
+                        e,
+                    )
 
     def move_to_storage_service(self, src_path, dest_path, dest_space):
         """
