@@ -28,11 +28,11 @@ class Logalty(models.Model):
     logalty_pass = models.CharField(max_length=256, blank=True,verbose_name="The password for Logalty Storage Service")
     logalty_url = models.CharField(max_length=2048,verbose_name="The url for Logalty Storage Service")
 
-    s3_access_key_id = models.CharField(max_length=64, blank=True,verbose_name="The user for AWS S3 on which upload the files before encryption")
-    s3_secret_access_key = models.CharField(max_length=256, blank=True,verbose_name="The user for AWS S3 on which upload the files before encryption")
-    s3_endpoint_url = models.CharField(max_length=2048,verbose_name="The user for AWS S3 on which upload the files before encryption")
-    s3_region = models.CharField(max_length=64,verbose_name="The region for AWS S3 on which upload the files before encryption")
-    s3_bucket = models.CharField(max_length=64, blank=True,verbose_name="The user for AWS S3 on which upload the files before encryption")
+    s3_access_key_id = models.CharField(max_length=64, blank=True,verbose_name="The USER_ID for AWS S3 on which upload the files before encryption")
+    s3_secret_access_key = models.CharField(max_length=256, blank=True,verbose_name="The SECRET for AWS S3 on which upload the files before encryption")
+    s3_endpoint_url = models.CharField(max_length=2048,verbose_name="The URL for AWS S3 on which upload the files before encryption")
+    s3_region = models.CharField(max_length=64,verbose_name="The REGION for AWS S3 on which upload the files before encryption")
+    s3_bucket = models.CharField(max_length=64, blank=True,verbose_name="The s3 BUCKET for AWS S3 on which upload the files before encryption")
 
     class Meta:
         app_label = "locations"
